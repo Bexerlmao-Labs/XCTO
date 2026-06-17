@@ -1,9 +1,10 @@
 package cc.bexerlmao.xcto.question.pojo;
 
+import cc.bexerlmao.xcto.question.util.JsonRawStringSerializer;
 import cc.bexerlmao.xcto.question.util.JsonStringDeserializer;
 import com.baomidou.mybatisplus.annotation.TableName;
-import com.fasterxml.jackson.annotation.JsonRawValue;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import jakarta.annotation.Nonnull;
 import lombok.Data;
 
@@ -16,11 +17,11 @@ public class Question {
     private Integer questionType;
     private String question;
 
-    @JsonRawValue
+    @JsonSerialize(using = JsonRawStringSerializer.class)
     @JsonDeserialize(using = JsonStringDeserializer.class)
     private String options;
 
-    @JsonRawValue
+    @JsonSerialize(using = JsonRawStringSerializer.class)
     @JsonDeserialize(using = JsonStringDeserializer.class)
     private String answer;
 
