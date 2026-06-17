@@ -8,6 +8,7 @@
 // @connect      aichathelper.top
 // @connect      localhost
 // @connect      127.0.0.1
+// @connect      xcto.bexerlmao.cc
 // @grant        GM_addStyle
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -45,6 +46,10 @@
             padding: 8px 6px;
             color: #ececec;
             font-size: 11px;
+            -webkit-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+            user-select: text !important;
         }
         .log-wrap .console div {
             padding: 3px 0;
@@ -374,21 +379,44 @@
                 // 提取我的答案和正确答案（从已批阅页面）
                 const myAnswerText = this.extractMyAnswer(element);
                 const correctAnswerText = this.extractCorrectAnswer(element);
-                
+
                 // 处理答案格式（多选题可能是ACD，判断题是对/错，填空题用分号分隔）
                 const userAnswerList = this.parseAnswerText(myAnswerText, optionTexts);
-                const correctAnswerList = correctAnswerText ? [correctAnswerText.trim()] : [];
-                
+                const qType = questionType[questionTypeText.replace("【", "").replace("】", "")] || "999";
+
+                let answerCode = -1;
+                let answerList = [];
+
+                if (correctAnswerText && correctAnswerText.trim()) {
+                    // 有正确答案（已批阅页面直接显示）
+                    answerCode = 1;
+                    answerList = [correctAnswerText.trim()];
+                } else if (myAnswerText) {
+                    // 没有显示正确答案，但用户做了题 → 通过图标或分数判断
+                    const isCorrect = this.isMyAnswerCorrect(element);
+                    if (isCorrect === true) {
+                        // 用户答对了 → 用用户答案作为正确答案
+                        const answerText = this.userAnswerListToAnswerText(userAnswerList, qType);
+                        answerCode = 1;
+                        answerList = answerText ? [answerText] : [];
+                    } else if (isCorrect === false) {
+                        // 用户答错了 → 存空答案
+                        answerCode = -1;
+                        answerList = [];
+                    }
+                    // isCorrect === null 无法判断，保持 code=-1
+                }
+
                 this.questions.push({
                     element,
-                    type: questionType[questionTypeText.replace("【", "").replace("】", "")] || "999",
+                    type: qType,
                     typeText: questionTypeText,
                     title: clean(questionTitle),
                     optionsText: optionTexts,
                     options: optionsObject,
-                    answer: { 
-                        code: correctAnswerText && correctAnswerText.trim() ? 1 : -1, 
-                        answer: correctAnswerList
+                    answer: {
+                        code: answerCode,
+                        answer: answerList
                     },
                     userAnswer: userAnswerList,
                     workType: this.type,
@@ -544,6 +572,81 @@
             }
             
             return userAnswers;
+        }
+
+        // 判断用户答案是否正确（通过 marking_dui/marking_cuo 图标或得分）
+        isMyAnswerCorrect(element) {
+            // 真实DOM结构:
+            // <div class="newAnswerBx">
+            //   <div class="myAnswerBx marBot16">
+            //     <div class="myAnswer">
+            //       <div class="answerCon">B</div>
+            //     </div>
+            //     <div class="answerScore">
+            //       <div class="CorrectOrNot fl">
+            //         <span class="marking_dui"></span>  <!-- 对 -->
+            //         <span class="marking_cuo"></span>  <!-- 错 -->
+            //       </div>
+            //       <div class="fr newAnswerScore"><span class="scoreNum">5.0</span>分</div>
+            //     </div>
+            //   </div>
+            // </div>
+
+            // 策略1: span.marking_dui / span.marking_cuo / span.marking_bandui
+            if (element.querySelector('span.marking_dui')) return true;
+            if (element.querySelector('span.marking_cuo')) return false;
+            if (element.querySelector('span.marking_bandui')) return false; // 半对→不可信
+
+            // 策略2: .CorrectOrNot 容器下的 span，通过 class 名含 dui/cuo 判断
+            const correctOrNot = element.querySelector('.CorrectOrNot');
+            if (correctOrNot) {
+                const span = correctOrNot.querySelector('span');
+                if (span) {
+                    const cls = (span.className || '').toLowerCase();
+                    if (/dui|right|correct|check/.test(cls)) return true;
+                    if (/cuo|wrong|error|cross/.test(cls)) return false;
+                }
+            }
+
+            // 策略3: 分数 .newAnswerScore .scoreNum
+            const scoreNum = element.querySelector('.newAnswerScore .scoreNum, .answerScore .scoreNum');
+            if (scoreNum) {
+                const score = parseFloat((scoreNum.innerText || scoreNum.textContent || '').trim());
+                if (!isNaN(score)) {
+                    if (score > 0) return true;
+                    if (score === 0) return false;
+                }
+            }
+
+            // 策略4（兜底）: 旧的 myAnswerBx / myAllAnswerBx 中的 i 图标
+            const legacyIcons = element.querySelectorAll(
+                '.myAnswerBx i, .myAllAnswerBx i, .newAnswerBx i'
+            );
+            for (const icon of legacyIcons) {
+                const cls = (icon.className || '').toLowerCase();
+                if (/duigou|dui\b|right|check|correct/.test(cls)) return true;
+                if (/cuowu|cuo\b|wrong|error|cross/.test(cls)) return false;
+            }
+
+            return null; // 无法判断
+        }
+
+        // 将 userAnswerList 转换为 correctAnswerText 格式的字符串
+        userAnswerListToAnswerText(userAnswerList, questionType) {
+            if (!userAnswerList || userAnswerList.length === 0) return '';
+
+            const type = parseInt(questionType);
+
+            if (type === 3) {
+                // 判断题: "对" 或 "错"
+                return userAnswerList[0].optionLabel;
+            } else if (type === 2 || type === 4) {
+                // 填空题/简答题: "答案1;答案2"
+                return userAnswerList.map(a => a.optionText).join(';');
+            } else {
+                // 单选题(0)或多选题(1): "D" 或 "ACD"
+                return userAnswerList.map(a => a.optionLabel).join('');
+            }
         }
     }
 
@@ -846,8 +949,8 @@
             return {
                 questionType: parseInt(q.type) || 0,
                 question: q.title,
-                options: JSON.stringify(q.optionsText || []),
-                answer: answerArray.length > 0 ? JSON.stringify(answerArray) : null
+                options: q.optionsText || [],
+                answer: answerArray.length > 0 ? answerArray : null
             };
         });
 
