@@ -34,8 +34,10 @@ const answerState = ref<'answering' | 'correct' | 'wrong'>('answering')
 const correctAnswers = ref<string[]>([])
 const isChecking = ref(false)
 
-function mapOptions(raw: Record<string, string>): QuestionOption[] {
-  return Object.entries(raw).map(([key, text]) => ({
+function mapOptions(raw: Record<string, string> | string): QuestionOption[] {
+  // 后端可能返回 JSON 字符串或对象，统一解析
+  const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+  return Object.entries(obj).map(([key, text]) => ({
     value: key,
     text,
   }))
@@ -238,7 +240,13 @@ onMounted(async () => {
 
       <!-- 单选题选项区域 -->
       <div v-if="questionType == '0'" class="options-container">
-        <div class="option-item" v-for="option in options" :key="option.value" :class="getOptionClass(option.value)">
+        <div
+          class="option-item"
+          v-for="option in options"
+          :key="option.value"
+          :class="getOptionClass(option.value)"
+          @click="answerState === 'answering' && handleOptionChange(option.value)"
+        >
           <input
             type="radio"
             :name="'option'"
@@ -257,7 +265,13 @@ onMounted(async () => {
 
       <!-- 判断题选项区域 -->
       <div v-if="questionType == '3'" class="options-container">
-        <div class="option-item" v-for="option in options" :key="option.value" :class="getOptionClass(option.value)">
+        <div
+          class="option-item"
+          v-for="option in options"
+          :key="option.value"
+          :class="getOptionClass(option.value)"
+          @click="answerState === 'answering' && handleOptionChange(option.value)"
+        >
           <input
             type="radio"
             :name="'option'"
@@ -399,7 +413,11 @@ onMounted(async () => {
   border: 1px solid #dcdfe6;
   border-radius: 8px;
   cursor: pointer;
+  user-select: none;
   transition: border-color 0.3s ease, background 0.3s ease;
+}
+.option-item:hover {
+  border-color: #409eff;
 }
 
 /* 隐藏原生单选按钮 */
@@ -432,6 +450,10 @@ onMounted(async () => {
 .option-text {
   font-size: 16px;
   color: #333;
+  flex: 1;
+  word-break: break-all;
+  overflow-wrap: break-word;
+  line-height: 1.5;
 }
 
 /* 选中状态样式 */
