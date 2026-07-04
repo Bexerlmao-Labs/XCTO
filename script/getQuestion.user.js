@@ -907,8 +907,8 @@
         return questions;
     }
 
-    // 将答案文本解析为后端格式的数组
-    function parseAnswerForBackend(answerText) {
+    // 将答案文本解析为后端格式的数组（答案存文本，不是标签）
+    function parseAnswerForBackend(answerText, optionsText) {
         if (!answerText) return [];
         const trimmed = answerText.trim();
         // 判断题
@@ -918,11 +918,35 @@
         if (trimmed.includes(';')) {
             return trimmed.split(';').map(s => s.trim()).filter(s => s);
         }
-        // 单选或多选（如 "D" 或 "ACD"），拆分为单个字母
+        // 单选或多选（如 "D" 或 "ACD"），标签→文本映射
         if (/^[A-D]+$/.test(trimmed)) {
-            return trimmed.split('');
+            return trimmed.split('').map(ch => {
+                const idx = ch.charCodeAt(0) - 65; // A→0, B→1, ...
+                return (optionsText && optionsText[idx]) ? optionsText[idx] : ch;
+            });
         }
         return [trimmed];
+    }
+
+    // 构建后端期望的 options 格式：{"0":"选项A","1":"选项B"}
+    function buildOptionsObject(questionType, optionsText, answerArray) {
+        if (questionType === 3) {
+            // 判断题：固定对/错
+            return { '0': '对', '1': '错' };
+        }
+        if (questionType === 2) {
+            // 填空题：用答案数量生成空白占位
+            const count = answerArray && answerArray.length > 0 ? answerArray.length : 1;
+            const obj = {};
+            for (let i = 0; i < count; i++) {
+                obj[String(i)] = `第${i + 1}空`;
+            }
+            return obj;
+        }
+        if (!optionsText || optionsText.length === 0) return {};
+        const obj = {};
+        optionsText.forEach((text, i) => { obj[String(i)] = text; });
+        return obj;
     }
 
     // 将解析结果保存到后端数据库
@@ -942,15 +966,27 @@
         }
 
         const backendQuestions = result.questions.map(q => {
+            const qType = parseInt(q.type) || 0;
             const answerArray = q.answer && q.answer.code === 1
-                ? parseAnswerForBackend(q.answer.answer[0] || '')
+                ? parseAnswerForBackend(q.answer.answer[0] || '', q.optionsText)
                 : [];
+            const optionsObj = buildOptionsObject(qType, q.optionsText, answerArray);
+
+            // 填空题：把 ____ 替换为 {0} {1} ...，前端靠这些标记渲染输入框
+            let questionText = q.title;
+            if (qType === 2) {
+                // 去掉冗余的【填空题】前缀（前端已有类型标签）
+                questionText = questionText.replace(/^【填空题】\s*/, '');
+                // 替换下划线空白为 {0} {1} ...
+                let blankIdx = 0;
+                questionText = questionText.replace(/_{2,}/g, () => `{${blankIdx++}}`);
+            }
 
             return {
-                questionType: parseInt(q.type) || 0,
-                question: q.title,
-                options: q.optionsText || [],
-                answer: answerArray.length > 0 ? answerArray : null
+                questionType: qType,
+                question: questionText,
+                options: JSON.stringify(optionsObj),
+                answer: answerArray.length > 0 ? JSON.stringify(answerArray) : null
             };
         });
 
@@ -962,27 +998,42 @@
 
         insertLog(`正在保存 ${backendQuestions.length} 道题目到后端...`, 'log');
 
+        // 调试：将实际发送的 JSON 负载打印到浏览器控制台
+        console.log('[XCTO] 即将发送至后端 /question/saveBatchNew 的数据:');
+        console.log(JSON.stringify(payload, null, 2));
+
+        const requestUrl = backendUrl.replace(/\/+$/, '') + '/question/saveBatchNew';
+        console.log('[XCTO] 请求 URL:', requestUrl);
+
         try {
-            const response = await new Promise((resolve, reject) => {
+            // 封装 POST 请求，返回完整 response 对象（含 finalUrl）
+            const doPost = (url) => new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
-                    url: backendUrl + '/question/saveBatchNew',
+                    url: url,
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     data: JSON.stringify(payload),
                     timeout: 15000,
-                    onload: (res) => {
-                        if (res.status === 200) {
-                            resolve(res.responseText);
-                        } else {
-                            reject(new Error(`HTTP ${res.status}: ${res.responseText}`));
-                        }
-                    },
+                    onload: (res) => resolve(res),
                     onerror: () => reject(new Error('网络请求失败')),
                     ontimeout: () => reject(new Error('请求超时'))
                 });
             });
 
-            insertLog(`保存成功: ${response}`, 'log');
+            let res = await doPost(requestUrl);
+
+            // 如果发生了重定向（域名/端口变化导致 POST 降级为 GET），用最终 URL 重试
+            if (res.finalUrl && res.finalUrl !== requestUrl && res.status !== 200) {
+                insertLog(`检测到重定向 (${requestUrl} → ${res.finalUrl})，用最终 URL 重新发送 POST...`, 'warning');
+                console.log('[XCTO] 重定向导致 POST 失败，用最终 URL 重试:', res.finalUrl);
+                res = await doPost(res.finalUrl);
+            }
+
+            if (res.status === 200) {
+                insertLog(`保存成功: ${res.responseText}`, 'log');
+            } else {
+                throw new Error(`HTTP ${res.status}: ${res.responseText}`);
+            }
         } catch (e) {
             insertLog(`保存到后端失败: ${e.message}`, 'warning');
         }
