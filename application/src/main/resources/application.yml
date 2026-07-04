@@ -17,3 +17,9 @@ mybatis:
   mapper-locations: classpath*:mapper/*.xml
   configuration:
     map-underscore-to-camel-case: true
+
+logging:
+  level:
+    cc.bexerlmao.xcto: DEBUG
+    org.springframework.web.servlet.mvc: DEBUG
+    org.springframework.web.servlet.handler: DEBUG
