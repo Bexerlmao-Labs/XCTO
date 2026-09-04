@@ -36,10 +36,10 @@ const isChecking = ref(false)
 
 function mapOptions(raw: Record<string, string> | string): QuestionOption[] {
   // 后端可能返回 JSON 字符串或对象，统一解析
-  const obj = typeof raw === 'string' ? JSON.parse(raw) : raw
+  const obj = (typeof raw === 'string' ? JSON.parse(raw) : raw) as Record<string, unknown>
   return Object.entries(obj).map(([key, text]) => ({
     value: key,
-    text,
+    text: String(text),
   }))
 }
 
@@ -134,7 +134,7 @@ const radioMap:Record<string, string> = {
   "25": "Z"
 }
 
-const getQuestionRadio = (radioNumber: string) : string => radioMap[radioNumber]
+const getQuestionRadio = (radioNumber: string) : string => radioMap[radioNumber] ?? ''
 
 // 收集用户答案并映射为文本数组发送给后端
 const collectAnswers = (): string[] => {
@@ -179,6 +179,14 @@ const getFillBlankClass = (index: number): string => {
   const correctAnswer = correctAnswers.value[index] || ''
   if (!userAnswer) return ''
   return userAnswer === correctAnswer ? 'fill-input-correct' : 'fill-input-wrong'
+}
+
+// 填空题按回车直接提交
+const handleFillBlankEnter = (e: KeyboardEvent) => {
+  // 中文输入法选词时的回车不触发提交
+  if (e.isComposing) return
+  if (answerState.value !== 'answering' || isNextBtnDisabled.value || isChecking.value) return
+  handleNextClick()
 }
 
 // 处理下一题点击
@@ -301,6 +309,7 @@ onMounted(async () => {
                   :placeholder="getPlaceholder(Number(part))"
                   :disabled="answerState !== 'answering'"
                   @input="handleFillBlankChange(Number(part), fillBlankAnswers[Number(part)])"
+                  @keydown.enter="handleFillBlankEnter"
                 >
                 <span v-if="answerState === 'wrong' && correctAnswers[Number(part)]" class="correct-answer-row">
                   <span class="correct-answer-label">正确答案</span>
@@ -364,6 +373,7 @@ onMounted(async () => {
   margin: 0 auto;
   margin-top: 50px;
   min-height: 300px;
+  transition: background-color 0.3s ease;
 }
 
 /* 加载状态容器 */
@@ -451,6 +461,7 @@ onMounted(async () => {
   font-size: 16px;
   color: #333;
   flex: 1;
+  min-width: 0;
   word-break: break-all;
   overflow-wrap: break-word;
   line-height: 1.5;
@@ -616,5 +627,79 @@ onMounted(async () => {
 .next-btn.btn-wrong {
   --el-button-bg-color: #f56c6c;
   --el-button-border-color: #f56c6c;
+}
+
+/* ===== 深色模式适配 ===== */
+
+/* 答题卡片容器 */
+html.dark .quiz-card {
+  background: #1d1e1f;
+  box-shadow: 0 2px 15px rgba(0, 0, 0, 0.5);
+}
+
+/* 题目区域 */
+html.dark .question-container {
+  border-bottom-color: #414243;
+}
+
+html.dark .question-title {
+  color: #e5eaf3;
+}
+
+html.dark .question-content {
+  color: #cfd3dc;
+}
+
+/* 选项样式 */
+html.dark .option-item {
+  border-color: #4c4d4f;
+}
+
+html.dark .option-text {
+  color: #cfd3dc;
+}
+
+html.dark .custom-radio {
+  border-color: #4c4d4f;
+}
+
+html.dark .radio-letter {
+  color: #a3a6ad;
+}
+
+html.dark .checkbox-letter {
+  color: #a3a6ad;
+}
+
+/* 填空题样式 */
+html.dark .fill-blank-content {
+  color: #cfd3dc;
+}
+
+html.dark .inline-fill-blank-input {
+  background: #141414;
+  border-color: #4c4d4f;
+  color: #e5eaf3;
+}
+
+html.dark .inline-fill-blank-input::placeholder {
+  color: #8d9095;
+}
+
+/* 答题反馈 — 深色下用半透明底色 */
+html.dark .option-item.option-correct {
+  background: rgba(103, 194, 58, 0.15);
+}
+
+html.dark .option-item.option-wrong {
+  background: rgba(245, 108, 108, 0.15);
+}
+
+html.dark .inline-fill-blank-input.fill-input-correct {
+  background: rgba(103, 194, 58, 0.15);
+}
+
+html.dark .inline-fill-blank-input.fill-input-wrong {
+  background: rgba(245, 108, 108, 0.15);
 }
 </style>
