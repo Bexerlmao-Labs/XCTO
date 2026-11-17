@@ -6,6 +6,15 @@ const request = axios.create({
   timeout: 10000,
 })
 
+// 附带 sa-token（登录后 localStorage 中的 tokenValue）
+request.interceptors.request.use((config) => {
+  const token = localStorage.getItem('satoken')
+  if (token) {
+    config.headers['satoken'] = token
+  }
+  return config
+})
+
 request.interceptors.response.use(
   (response) => response,
   (error) => {

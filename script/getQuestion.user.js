@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         XCTO 题目获取
 // @namespace    Bexerlmao
-// @version      0.1.0
+// @version      0.2.0
 // @description  获取题目、调试界面、自动翻页功能
 // @author       Bexerlmao
 // @match        *://*.chaoxing.com/*
@@ -949,6 +949,49 @@
         return obj;
     }
 
+    // ==================== 认证（sa-token） ====================
+    // 登录后保存 tokenValue，上传请求通过 satoken 请求头携带；不再需要独立的上传密钥
+    function getXctoToken() {
+        return GM_getValue('xctoToken', '');
+    }
+
+    async function xctoLogin() {
+        const backendUrl = GM_getValue('backendUrl', 'http://localhost:65535').replace(/\/+$/, '');
+        const username = GM_getValue('xctoUsername', '');
+        const password = GM_getValue('xctoPassword', '');
+        if (!username || !password) {
+            insertLog('请先在设置中填写 XCTO 账号和密码', 'warning');
+            return null;
+        }
+        try {
+            const res = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    url: backendUrl + '/auth/login',
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    data: JSON.stringify({ username, password }),
+                    timeout: 10000,
+                    onload: (r) => resolve(r),
+                    onerror: () => reject(new Error('网络请求失败')),
+                    ontimeout: () => reject(new Error('请求超时'))
+                });
+            });
+            if (res.status === 200) {
+                const body = JSON.parse(res.responseText);
+                if (body && body.tokenValue) {
+                    GM_setValue('xctoToken', body.tokenValue);
+                    insertLog(`登录成功: ${body.username}，剩余上传次数 ${body.uploadBalance}`, 'log');
+                    return body.tokenValue;
+                }
+                throw new Error('登录响应缺少 tokenValue');
+            }
+            throw new Error(`HTTP ${res.status}: ${res.responseText}`);
+        } catch (e) {
+            insertLog(`登录失败: ${e.message}`, 'warning');
+            return null;
+        }
+    }
+
     // 将解析结果保存到后端数据库
     async function saveToBackend(result) {
         const backendUrl = GM_getValue('backendUrl', 'http://localhost:65535');
@@ -1006,12 +1049,12 @@
         console.log('[XCTO] 请求 URL:', requestUrl);
 
         try {
-            // 封装 POST 请求，返回完整 response 对象（含 finalUrl）
-            const doPost = (url) => new Promise((resolve, reject) => {
+            // 带 sa-token 请求头的 POST 封装；401 时自动重新登录并重试一次
+            const doPost = (url, token) => new Promise((resolve, reject) => {
                 GM_xmlhttpRequest({
                     url: url,
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'satoken': token },
                     data: JSON.stringify(payload),
                     timeout: 15000,
                     onload: (res) => resolve(res),
@@ -1020,13 +1063,29 @@
                 });
             });
 
-            let res = await doPost(requestUrl);
+            let token = getXctoToken();
+            if (!token) {
+                insertLog('未登录，自动登录中...', 'log');
+                token = await xctoLogin();
+                if (!token) return;
+            }
+
+            let res = await doPost(requestUrl, token);
+
+            // token 过期/无效 → 重新登录后重试一次
+            if (res.status === 401) {
+                insertLog('登录已过期，尝试重新登录...', 'warning');
+                GM_setValue('xctoToken', '');
+                token = await xctoLogin();
+                if (!token) return;
+                res = await doPost(requestUrl, token);
+            }
 
             // 如果发生了重定向（域名/端口变化导致 POST 降级为 GET），用最终 URL 重试
             if (res.finalUrl && res.finalUrl !== requestUrl && res.status !== 200) {
                 insertLog(`检测到重定向 (${requestUrl} → ${res.finalUrl})，用最终 URL 重新发送 POST...`, 'warning');
                 console.log('[XCTO] 重定向导致 POST 失败，用最终 URL 重试:', res.finalUrl);
-                res = await doPost(res.finalUrl);
+                res = await doPost(res.finalUrl, token);
             }
 
             if (res.status === 200) {
@@ -1181,6 +1240,18 @@
                             <input type="text" id="backend-url" placeholder="http://localhost:65535" style="width:160px">
                         </div>
                         <div class="config-row">
+                            <span>XCTO账号:</span>
+                            <input type="text" id="xcto-username" placeholder="账号" style="width:160px">
+                        </div>
+                        <div class="config-row">
+                            <span>XCTO密码:</span>
+                            <input type="password" id="xcto-password" placeholder="密码" style="width:160px">
+                        </div>
+                        <div class="config-row">
+                            <span>登录状态:</span>
+                            <button class="btn-primary" id="xcto-login" style="padding:2px 10px">重新登录</button>
+                        </div>
+                        <div class="config-row">
                             <span>自动获取:</span>
                             <label class="toggle-switch">
                                 <input type="checkbox" id="auto-answer" checked>
@@ -1293,6 +1364,39 @@
             });
         }
 
+        // XCTO 账号/密码 — 失焦或回车自动保存
+        const xctoUsernameInput = document.getElementById('xcto-username');
+        const xctoPasswordInput = document.getElementById('xcto-password');
+        if (xctoUsernameInput) {
+            const saveXctoUsername = () => {
+                GM_setValue('xctoUsername', xctoUsernameInput.value.trim());
+                insertLog('XCTO 账号已保存', 'log');
+            };
+            xctoUsernameInput.addEventListener('blur', saveXctoUsername);
+            xctoUsernameInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') saveXctoUsername();
+            });
+        }
+        if (xctoPasswordInput) {
+            const saveXctoPassword = () => {
+                GM_setValue('xctoPassword', xctoPasswordInput.value);
+                insertLog('XCTO 密码已保存', 'log');
+            };
+            xctoPasswordInput.addEventListener('blur', saveXctoPassword);
+            xctoPasswordInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') saveXctoPassword();
+            });
+        }
+
+        // 重新登录按钮
+        const xctoLoginBtn = document.getElementById('xcto-login');
+        if (xctoLoginBtn) {
+            xctoLoginBtn.addEventListener('click', async () => {
+                GM_setValue('xctoToken', '');
+                await xctoLogin();
+            });
+        }
+
         // 加载保存的设置
         const autoAnswer = GM_getValue('autoAnswer', true);
         const autoChangeNext = GM_getValue('autoChangeNext', true);
@@ -1300,6 +1404,10 @@
         document.getElementById('auto-answer').checked = autoAnswer;
         document.getElementById('auto-change-next').checked = autoChangeNext;
         document.getElementById('backend-url').value = backendUrl;
+        const savedUsername = document.getElementById('xcto-username');
+        const savedPassword = document.getElementById('xcto-password');
+        if (savedUsername) savedUsername.value = GM_getValue('xctoUsername', '');
+        if (savedPassword) savedPassword.value = GM_getValue('xctoPassword', '');
 
     // 监听"课程"菜单点击 → 等 iframe 加载完成 → 自动抓取
     function setupAutoScrape() {
