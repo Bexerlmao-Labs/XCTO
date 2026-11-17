@@ -39,7 +39,8 @@ services:
       - postgresql-net
 
   xcto-backend:
-    image: xcto-backend:latest
+    # 必须写 TCR 全名：服务器上 docker compose pull 才能从 TCR 拉取 CI 推送的镜像
+    image: ccr.ccs.tencentyun.com/xcto/xcto-backend:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -62,7 +63,7 @@ services:
     restart: unless-stopped
 
   xcto-frontend:
-    image: xcto-frontend:latest
+    image: ccr.ccs.tencentyun.com/xcto/xcto-frontend:latest
     build:
       context: ./xcto-ui
       dockerfile: Dockerfile

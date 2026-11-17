@@ -27,9 +27,9 @@ jobs:
           java-version: '17'
           cache: maven
 
-      # 后端 jar 不含前端：ui 为微信小程序（经微信平台上传），admin-ui 由独立前端镜像构建
+      # 前端由独立的 xcto-frontend 镜像构建，后端 jar 不含前端；script 模块是 pom 空壳无需跳过
       - name: Build with Maven
-        run: bash ./mvnw -B clean package -DskipTests -Dskip.script=true -Dskip.xcto-ui=true
+        run: mvn -B clean package -DskipTests -Dskip.frontend=true
 
       # ---------- 构建并推送镜像 ----------
       - name: Login to Tencent TCR
@@ -56,8 +56,8 @@ jobs:
       - name: Build & push frontend image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ./admin-ui/Dockerfile
+          context: ./xcto-ui
+          file: ./xcto-ui/Dockerfile
           push: true
           # 同上，关闭 attestation
           provenance: false
@@ -88,13 +88,13 @@ jobs:
           # 任一命令失败（非 0 退出码）即中止后续命令，避免误判部署成功
           script_stop: true
           script: |
-            cd /opt/bringit
+            cd /opt/xcto
             # 拉取前先登录 TCR（服务器 daemon 没有长期凭证，每次部署时登录一次；
             # --password-stdin 避免密码出现在进程列表/历史里）
             echo "$TCR_PASSWORD" | docker login ${{ env.TCR_REGISTRY }} --username "$TCR_USERNAME" --password-stdin
             # 只拉取自建镜像；database/redis 用服务器本地镜像（docker compose pull 不带参数会连 Docker Hub，
             # 本地 postgres/redis 与远端 digest 不一致会被判为有更新，每次重新下几百 MB 导致超时）
-            docker compose pull backend frontend
+            docker compose pull xcto-backend xcto-frontend
             docker compose up -d --remove-orphans
             docker image prune -f
 
