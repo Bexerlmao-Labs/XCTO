@@ -21,8 +21,9 @@ services:
       TZ: Asia/Shanghai
       # 供容器内 healthcheck 使用
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
-    ports:
-      - "127.0.0.1:6379:6379"
+    # 不映射宿主机端口：backend 走 compose 内部网络以服务名访问 redis；
+    # 宿主机映射在服务器上易与旧实例/其他 redis 端口冲突（Bind ... port is already allocated）
+    # 如需本地调试可临时改回：127.0.0.1:6379:6379
     volumes:
       - redis-data:/data
     healthcheck:
