@@ -1,21 +1,38 @@
 # ============================================================
 # XCTO Docker Compose（前端 + 后端 + Redis 分离部署）
-# 说明：PostgreSQL 不随本 compose 启动，请通过 .env 指向外部数据库。
+# 说明：PostgreSQL 不随本 compose 启动，由 script/docker-compose.database.yml
+#       创建的外部网络 postgresql-net 提供，backend 通过容器名 postgres 访问。
+#       Redis 使用默认账号（default 无密码），仅监听本机回环。
 # ============================================================
 
 services:
   redis:
-    image: redis:7.2-alpine
-    container_name: xcto-redis
-    command: ["redis-server", "--appendonly", "yes"]
+    image: redis:8.10.2
+    container_name: redis
+    restart: on-failure
+    # 开启 AOF 持久化；使用 Redis 默认账号（default，无密码）
+    command:
+      - redis-server
+      - --appendonly
+      - yes
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:6379:6379"
     volumes:
-      - redisdata:/data
+      - redis-data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
-    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    networks:
+      - postgresql-net
 
   xcto-backend:
     image: xcto-backend:latest
@@ -27,14 +44,11 @@ services:
     # ports:
     #   - "8081:65535"
     environment:
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_NAME: ${DB_NAME:-xcto}
-      DB_USERNAME: ${DB_USERNAME:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://${DB_HOST:-postgres}:5432/${DB_NAME:-xcto}?useUnicode=true&characterEncoding=utf8&stringtype=unspecified
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-123456}
+      REDIS_HOST: ${REDIS_HOST:-redis}
+      REDIS_PORT: ${REDIS_PORT:-6379}
     depends_on:
       redis:
         condition: service_healthy
@@ -52,5 +66,11 @@ services:
       - xcto-backend
     restart: unless-stopped
 
+# 数据库编排（script/docker-compose.database.yml）创建的外部网络，backend 通过容器名 postgres 访问数据库
+networks:
+  postgresql-net:
+    external: true
+    name: postgresql-net
+
 volumes:
-  redisdata:
+  redis-data:
