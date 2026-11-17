@@ -1,41 +1,56 @@
 # ============================================================
-# XCTO Docker Compose（自带 PostgreSQL，一键启动）
+# XCTO Docker Compose（前端 + 后端 + Redis 分离部署）
+# 说明：PostgreSQL 不随本 compose 启动，请通过 .env 指向外部数据库。
 # ============================================================
 
 services:
-  db:
-    image: postgres:16.3
-    container_name: xcto-db
-    environment:
-      POSTGRES_DB: xcto
-      POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-123456}
+  redis:
+    image: redis:7.2-alpine
+    container_name: xcto-redis
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./db/init:/docker-entrypoint-initdb.d
+      - redisdata:/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d xcto"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
     restart: unless-stopped
 
-  xcto:
-    image: xcto:latest
-    container_name: xcto-app
-    ports:
-      - "8080:65535"
+  xcto-backend:
+    image: xcto-backend:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: xcto-backend
+    # 如需直连后端调试可放开端口；平时统一走前端 nginx 反代
+    # ports:
+    #   - "8081:65535"
     environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_NAME: xcto
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: ${DB_NAME:-xcto}
       DB_USERNAME: ${DB_USERNAME:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-123456}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     depends_on:
-      db:
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
+  xcto-frontend:
+    image: xcto-frontend:latest
+    build:
+      context: ./xcto-ui
+      dockerfile: Dockerfile
+    container_name: xcto-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - xcto-backend
+    restart: unless-stopped
+
 volumes:
-  pgdata:
+  redisdata:
