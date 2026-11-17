@@ -21,6 +21,8 @@ export default defineConfig({
     proxy: {
       '/question': 'http://localhost:65535',
       '/chaoxingClass': 'http://localhost:65535',
+      '/auth': 'http://localhost:65535',
+      '/user': 'http://localhost:65535',
     },
   },
 })
