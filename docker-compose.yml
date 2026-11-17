@@ -48,6 +48,7 @@ services:
     # ports:
     #   - "8081:65535"
     environment:
+      SPRING_PROFILES_ACTIVE: prod
       SPRING_DATASOURCE_URL: jdbc:postgresql://${DB_HOST:-postgres}:5432/${DB_NAME:-xcto}?useUnicode=true&characterEncoding=utf8&stringtype=unspecified
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-123456}

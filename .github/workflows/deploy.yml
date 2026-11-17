@@ -1,0 +1,102 @@
+name: Build & Deploy
+
+# 合并到 main（即 push 到 main）后触发
+on:
+  push:
+    branches: [ main ]
+  # 支持在 Actions 页面手动触发
+  workflow_dispatch:
+
+env:
+  # 腾讯云 TCR 经典个人版地址（腾讯云 ECS 拉取自动走内网）
+  TCR_REGISTRY: ccr.ccs.tencentyun.com
+  BACKEND_IMAGE: ccr.ccs.tencentyun.com/xcto/xcto-backend
+  FRONTEND_IMAGE: ccr.ccs.tencentyun.com/xcto/xcto-frontend
+
+jobs:
+  build-push-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # 后端 jar 不含前端：ui 为微信小程序（经微信平台上传），admin-ui 由独立前端镜像构建
+      - name: Build with Maven
+        run: bash ./mvnw -B clean package -DskipTests -Dskip.script=true -Dskip.xcto-ui=true
+
+      # ---------- 构建并推送镜像 ----------
+      - name: Login to Tencent TCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.TCR_REGISTRY }}
+          username: ${{ secrets.TCR_USERNAME }}
+          password: ${{ secrets.TCR_PASSWORD }}
+
+      - name: Build & push backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          # 关闭 attestation（provenance/SBOM）：TCR 个人版对这类清单支持不佳，会导致推送阶段反复重试、
+          # 日志卡在 resolving provenance for metadata file 很久
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./admin-ui/Dockerfile
+          push: true
+          # 同上，关闭 attestation
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+
+      # ---------- 部署到 ECS ----------
+      - name: Deploy to ECS
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          # 传给远端脚本用于 docker login（GitHub 会自动在日志中打码 secret）
+          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
+        with:
+          host: ${{ secrets.ECS_HOST }}
+          # ECS 的 sshd 端口（在仓库 Settings → Secrets 里配置 ECS_PORT；未配置时回落 22）
+          port: ${{ secrets.ECS_PORT || 22 }}
+          username: ${{ secrets.ECS_USER }}
+          key: ${{ secrets.ECS_SSH_KEY }}
+          # SSH 连接建立超时（默认 30s）
+          timeout: 30s
+          # 远程命令执行超时：镜像拉取较慢，放宽到 30 分钟（注意：该参数是 command_timeout，而非 timeout）
+          command_timeout: 30m
+          # 把上面 env 里定义的变量传给远端脚本
+          envs: TCR_USERNAME,TCR_PASSWORD
+          # 任一命令失败（非 0 退出码）即中止后续命令，避免误判部署成功
+          script_stop: true
+          script: |
+            cd /opt/bringit
+            # 拉取前先登录 TCR（服务器 daemon 没有长期凭证，每次部署时登录一次；
+            # --password-stdin 避免密码出现在进程列表/历史里）
+            echo "$TCR_PASSWORD" | docker login ${{ env.TCR_REGISTRY }} --username "$TCR_USERNAME" --password-stdin
+            # 只拉取自建镜像；database/redis 用服务器本地镜像（docker compose pull 不带参数会连 Docker Hub，
+            # 本地 postgres/redis 与远端 digest 不一致会被判为有更新，每次重新下几百 MB 导致超时）
+            docker compose pull backend frontend
+            docker compose up -d --remove-orphans
+            docker image prune -f
+
+      - name: Deployment summary
+        run: echo "✅ 已部署 commit ${{ github.sha }} 到 ECS"
