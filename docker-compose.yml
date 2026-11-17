@@ -44,7 +44,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: xcto-backend
-    # 如需直连后端调试可放开端口；平时统一走前端 nginx 反代
+    # 反向代理已改为外部手动配置，如需直连后端调试可放开端口
     # ports:
     #   - "8081:65535"
     environment:
@@ -66,6 +66,7 @@ services:
       context: ./xcto-ui
       dockerfile: Dockerfile
     container_name: xcto-frontend
+    # 仅托管 SPA 静态资源；反向代理由外部手动配置，此端口即上游地址
     ports:
       - "8080:80"
     depends_on:
