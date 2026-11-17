@@ -26,3 +26,23 @@ export interface CheckResult {
   correct: boolean
   correctAnswers: string[]
 }
+
+/** 登录接口返回 */
+export interface LoginResult {
+  tokenName: string
+  tokenValue: string
+  userId: number
+  username: string
+  uploadBalance: number
+}
+
+/** 用户信息 */
+export interface UserInfo {
+  id: number
+  username: string
+  role: string
+  courses: string
+  uploadBalance: number
+  uploadUsed: number
+  status: number
+}

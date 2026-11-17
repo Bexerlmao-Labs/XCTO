@@ -18,8 +18,21 @@ request.interceptors.request.use((config) => {
 request.interceptors.response.use(
   (response) => response,
   (error) => {
+    const status = error.response?.status
     const message = error.response?.data?.message || error.message || '请求失败'
-    ElMessage.error(message)
+
+    // 登录过期/未登录：清除本地凭据并踢回登录页
+    if (status === 401) {
+      localStorage.removeItem('satoken')
+      localStorage.removeItem('xcto-username')
+      if (!window.location.pathname.startsWith('/login')) {
+        ElMessage.warning('登录已过期，请重新登录')
+        const redirect = encodeURIComponent(window.location.pathname + window.location.search)
+        window.location.assign(`/login?redirect=${redirect}`)
+      }
+    } else {
+      ElMessage.error(message)
+    }
     return Promise.reject(error)
   },
 )

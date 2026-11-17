@@ -1,10 +1,37 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { RouterView } from 'vue-router'
+import { ref, watch } from 'vue'
+import { RouterView, useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { logout } from '@/api/auth'
 
 const THEME_KEY = 'xcto-theme'
 
 const isDark = ref(false)
+const username = ref(localStorage.getItem('xcto-username') || '')
+
+const route = useRoute()
+const router = useRouter()
+
+// 登录态变化（如登录页跳转回来）后刷新用户名展示
+watch(
+  () => route.path,
+  () => {
+    username.value = localStorage.getItem('xcto-username') || ''
+  },
+)
+
+const handleLogout = async () => {
+  try {
+    await logout()
+  } catch {
+    // 无论接口是否成功都清理本地登录态
+  }
+  localStorage.removeItem('satoken')
+  localStorage.removeItem('xcto-username')
+  username.value = ''
+  ElMessage.success('已退出登录')
+  router.replace({ name: 'login' })
+}
 
 // 初始化主题：localStorage 优先，否则跟随系统
 const initTheme = () => {
@@ -37,6 +64,12 @@ initTheme()
     </svg>
   </button>
 
+  <!-- 用户信息 / 退出登录 -->
+  <div v-if="username" class="user-chip">
+    <span class="user-name">{{ username }}</span>
+    <button class="logout-btn" title="退出登录" @click="handleLogout">退出</button>
+  </div>
+
   <RouterView />
 </template>
 
@@ -62,6 +95,43 @@ initTheme()
 .theme-toggle:hover {
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
+}
+
+.user-chip {
+  position: fixed;
+  top: 16px;
+  right: 68px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--el-border-color);
+  border-radius: 20px;
+  background: var(--el-bg-color);
+}
+
+.user-name {
+  font-size: 13px;
+  color: var(--el-text-color-primary);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.logout-btn:hover {
+  color: var(--el-color-danger);
 }
 </style>
 
