@@ -1,17 +1,13 @@
+# ============================================================
+# 通用配置（三个环境共用）
+# 环境专属配置在 application-dev.yml / application-prod.yml
+# 默认激活 dev；生产由 docker compose 注入 SPRING_PROFILES_ACTIVE=prod 覆盖
+# ============================================================
 spring:
   application:
     name: Application
-  data:
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      username: ${REDIS_USERNAME:}
-      password: ${REDIS_PASSWORD:}
-  datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:xcto}
-    driver-class-name: org.postgresql.Driver
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:123456}
+  profiles:
+    active: dev
 
 server:
   port: 65535

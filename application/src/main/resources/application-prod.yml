@@ -1,0 +1,22 @@
+# ============================================================
+# 生产环境（docker compose 部署，容器间通过服务名访问）
+# 由 docker compose 注入 SPRING_PROFILES_ACTIVE=prod 激活本文件
+# ============================================================
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:postgres}:5432/${DB_NAME:xcto}?useUnicode=true&characterEncoding=utf8&stringtype=unspecified
+    driver-class-name: org.postgresql.Driver
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:123456}
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USER:default}
+      password: ${REDIS_PASSWORD:redis123456}
+
+# 生产环境关闭 DEBUG 日志
+logging:
+  level:
+    cc.bexerlmao.xcto: INFO
+    org.springframework.web.servlet: INFO

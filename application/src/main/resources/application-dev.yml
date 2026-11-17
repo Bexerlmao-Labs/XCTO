@@ -1,0 +1,18 @@
+# ============================================================
+# 开发环境（本机直跑）
+# IDEA 已导入 .env 时以下变量来自 .env；未导入时用冒号后的默认值
+# 变量名与 .env 完全对应：DB_HOST / DB_NAME / POSTGRES_USER / POSTGRES_PASSWORD
+#                            REDIS_HOST / REDIS_PORT / REDIS_USER / REDIS_PASSWORD
+# ============================================================
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:xcto}
+    driver-class-name: org.postgresql.Driver
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:123456}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      username: ${REDIS_USER:bringit}
+      password: ${REDIS_PASSWORD:123456}
