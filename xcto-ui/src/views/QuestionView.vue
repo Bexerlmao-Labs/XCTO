@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElCheckbox, ElCheckboxGroup, ElButton } from 'element-plus'
 import { getRandomQuestion, checkAnswer } from '@/api/question'
@@ -189,6 +189,17 @@ const handleFillBlankEnter = (e: KeyboardEvent) => {
   handleNextClick()
 }
 
+// 单选题按回车提交 / 答错后回车继续下一题
+// 选项为自绘元素无可聚焦节点，故监听在 window 上
+const handleOptionEnter = (e: KeyboardEvent) => {
+  if (e.isComposing) return
+  if (questionType.value !== '0') return
+  if (isChecking.value || answerState.value === 'correct') return
+  // 未选择答案时不响应
+  if (answerState.value === 'answering' && isNextBtnDisabled.value) return
+  handleNextClick()
+}
+
 // 处理下一题点击
 const handleNextClick = async () => {
   // 错误状态下点击 → 直接跳到下一题
@@ -223,11 +234,16 @@ const handleNextClick = async () => {
 
 // 生命周期钩子
 onMounted(async () => {
+  window.addEventListener('keydown', handleOptionEnter)
   if (!classId) {
     ElMessage.error('缺少班级ID参数')
     return
   }
   await fetchQuestion()
+});
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleOptionEnter)
 });
 </script>
 
