@@ -9,7 +9,8 @@ import org.springframework.context.annotation.ComponentScan;
 @ComponentScan({
         "cc.bexerlmao.xcto.question",
         "cc.bexerlmao.xcto.application",
-        "cc.bexerlmao.xcto.chaoxingClass"
+        "cc.bexerlmao.xcto.chaoxingClass",
+        "cc.bexerlmao.xcto.user"
 })
 @MapperScan("cc.bexerlmao.xcto.**.mapper")
 public class Application {

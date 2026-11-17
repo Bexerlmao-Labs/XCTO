@@ -1,5 +1,7 @@
 package cc.bexerlmao.xcto.question.controller;
 
+import cc.bexerlmao.xcto.user.exception.ApiException;
+import cn.dev33.satoken.exception.NotLoginException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +52,32 @@ public class GlobalExceptionHandler {
     /**
      * 兜底：捕获所有未处理的异常，记录日志并返回 500。
      */
+    /**
+     * sa-token 未登录 / 登录过期，返回 401。
+     */
+    @ExceptionHandler(NotLoginException.class)
+    public ResponseEntity<Map<String, Object>> handleNotLogin(NotLoginException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", 401);
+        body.put("error", "Unauthorized");
+        body.put("message", "未登录或登录已过期，请先调用 /auth/login 获取 token");
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
+    }
+
+    /**
+     * 业务异常（如上传余额不足），按异常携带的状态码返回。
+     */
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<Map<String, Object>> handleApiException(ApiException ex) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("timestamp", Instant.now().toString());
+        body.put("status", ex.getStatus());
+        body.put("error", "Api Exception");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(ex.getStatus()).body(body);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleGeneralException(Exception ex) {
         log.error("未处理的异常: {}", ex.getMessage(), ex);
