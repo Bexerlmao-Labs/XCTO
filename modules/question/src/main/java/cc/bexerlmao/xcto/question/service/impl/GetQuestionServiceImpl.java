@@ -1,6 +1,8 @@
 package cc.bexerlmao.xcto.question.service.impl;
 
 import cc.bexerlmao.xcto.chaoxingClass.service.ChaoxingClassService;
+import cn.dev33.satoken.exception.NotLoginException;
+import cn.dev33.satoken.stp.StpUtil;
 import cc.bexerlmao.xcto.question.pojo.CheckResult;
 import cc.bexerlmao.xcto.question.pojo.Question;
 import cc.bexerlmao.xcto.question.pojo.QuestionBatchRequest;
@@ -90,7 +92,7 @@ public class GetQuestionServiceImpl implements GetQuestionService {
 
         Long currentTotal = chaoxingClassService.getQuestionTotalByClassId(classId);
         if (currentTotal == null) {
-            chaoxingClassService.insertClass(classId, request.getClassName());
+            chaoxingClassService.insertClass(classId, request.getClassName(), currentLoginUserId());
         }
         chaoxingClassService.updateClassTotalByClassId(classId, (long) questions.size());
     }
@@ -110,6 +112,17 @@ public class GetQuestionServiceImpl implements GetQuestionService {
         }
     }
 
+    /**
+     * 当前登录用户 ID（上传接口均已要求登录，防御性兑底）。
+     */
+    private Long currentLoginUserId() {
+        try {
+            return StpUtil.getLoginIdAsLong();
+        } catch (NotLoginException e) {
+            return null;
+        }
+    }
+
     @Override
     public Question deepCopyQuestion(Question sourceQuestion) {
         Question resultQuestion = new Question();
@@ -125,7 +138,7 @@ public class GetQuestionServiceImpl implements GetQuestionService {
     private void incrementClassTotal(Long classId, Long delta) {
         Long currentTotal = chaoxingClassService.getQuestionTotalByClassId(classId);
         if (currentTotal == null) {
-            chaoxingClassService.insertClass(classId, null);
+            chaoxingClassService.insertClass(classId, null, currentLoginUserId());
         }
         chaoxingClassService.updateClassTotalByClassId(classId, delta);
     }

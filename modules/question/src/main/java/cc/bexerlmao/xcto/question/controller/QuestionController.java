@@ -4,6 +4,8 @@ import cc.bexerlmao.xcto.question.pojo.CheckResult;
 import cc.bexerlmao.xcto.question.pojo.Question;
 import cc.bexerlmao.xcto.question.pojo.QuestionBatchRequest;
 import cc.bexerlmao.xcto.question.service.GetQuestionService;
+import cc.bexerlmao.xcto.user.service.UserService;
+import cn.dev33.satoken.stp.StpUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
@@ -18,9 +20,11 @@ public class QuestionController {
     private static final Logger log = LoggerFactory.getLogger(QuestionController.class);
 
     private final GetQuestionService questionService;
+    private final UserService userService;
 
-    public QuestionController(GetQuestionService questionService) {
+    public QuestionController(GetQuestionService questionService, UserService userService) {
         this.questionService = questionService;
+        this.userService = userService;
     }
 
     @PostMapping("/save")
@@ -48,8 +52,15 @@ public class QuestionController {
     @PostMapping("/saveBatchNew")
     public ResponseEntity<String> saveQuestionsNew(@RequestBody QuestionBatchRequest request) {
         try {
+            if (request.getQuestions() == null || request.getQuestions().isEmpty()) {
+                return ResponseEntity.ok("success");
+            }
+            // 校验登录并扣减上传次数余额（余额不足时抛 ApiException 403）
+            userService.deductUploadBalance(StpUtil.getLoginIdAsLong(), request.getQuestions().size());
             questionService.saveQuestionsNew(request);
             return ResponseEntity.ok("success");
+        } catch (cc.bexerlmao.xcto.user.exception.ApiException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to batch save questions (new)", e);
             return ResponseEntity.internalServerError().body("error");

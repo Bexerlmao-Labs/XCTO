@@ -13,5 +13,6 @@ public class ChaoxingClassBo {
     Long classId;
     String className;
     Long questionTotal;
+    Long createUser;
 
 }

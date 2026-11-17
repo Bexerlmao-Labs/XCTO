@@ -12,7 +12,7 @@ public interface ChaoxingClassService {
 
     void updateClassTotalByClassId(Long classId, Long deltaTotal);
 
-    void insertClass(Long classId, String className);
+    void insertClass(Long classId, String className, Long createUser);
 
     List<ChaoxingClassBo> listAllClasses();
 
