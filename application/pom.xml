@@ -114,30 +114,29 @@
                                 <argument>run</argument>
                                 <argument>build-only</argument>
                             </arguments>
-                            <skip>${skip.npm}</skip>
+                            <skip>${skip.frontend}</skip>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
-            <!-- 复制前端产物到 static 目录 -->
+            <!-- 复制前端产物到 static 目录（跳过前端构建时一并跳过，dist 不存在不会报错） -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-resources-plugin</artifactId>
+                <artifactId>maven-antrun-plugin</artifactId>
                 <executions>
                     <execution>
                         <id>copy-frontend-dist</id>
                         <phase>generate-resources</phase>
                         <goals>
-                            <goal>copy-resources</goal>
+                            <goal>run</goal>
                         </goals>
                         <configuration>
-                            <outputDirectory>${project.basedir}/src/main/resources/static</outputDirectory>
-                            <overwrite>true</overwrite>
-                            <resources>
-                                <resource>
-                                    <directory>${project.basedir}/../xcto-ui/dist</directory>
-                                </resource>
-                            </resources>
+                            <skip>${skip.frontend}</skip>
+                            <target>
+                                <copy todir="${project.basedir}/src/main/resources/static" overwrite="true">
+                                    <fileset dir="${project.basedir}/../xcto-ui/dist"/>
+                                </copy>
+                            </target>
                         </configuration>
                     </execution>
                 </executions>

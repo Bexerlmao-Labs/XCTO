@@ -39,6 +39,9 @@
     <properties>
         <java.version>17</java.version>
         <sa-token.version>1.46.0</sa-token.version>
+        <!-- 全局跳过前端构建开关（xcto-ui 的 npm 构建 + application 的 exec/复制 dist）：
+             mvn clean package -Dskip.frontend=true -->
+        <skip.frontend>false</skip.frontend>
     </properties>
     <dependencyManagement>
         <dependencies>

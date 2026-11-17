@@ -16,8 +16,6 @@
     <description>基于 Vue 3 + Vite 的前端，通过 frontend-maven-plugin 参与构建</description>
 
     <properties>
-        <!-- 跳过前端构建：mvn clean install -Dskip.frontend=true -->
-        <skip.frontend>false</skip.frontend>
         <node.version>v22.18.0</node.version>
         <npm.version>11.4.2</npm.version>
     </properties>
