@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cc.bexerlmao.xcto.user.mapper.UserMapper">
+
+    <resultMap id="UserResultMap" type="cc.bexerlmao.xcto.user.pojo.UserBo">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="passwordHash" column="password_hash"/>
+        <result property="role" column="role"/>
+        <result property="courses" column="courses"/>
+        <result property="uploadKey" column="upload_key"/>
+        <result property="uploadBalance" column="upload_balance"/>
+        <result property="uploadUsed" column="upload_used"/>
+        <result property="status" column="status"/>
+        <result property="createTime" column="create_time"/>
+        <result property="updateTime" column="update_time"/>
+        <result property="lastLoginTime" column="last_login_time"/>
+    </resultMap>
+
+    <select id="findByUsername" parameterType="String" resultMap="UserResultMap">
+        SELECT * FROM sys_user WHERE username = #{username}
+    </select>
+
+    <select id="findById" parameterType="Long" resultMap="UserResultMap">
+        SELECT * FROM sys_user WHERE id = #{id}
+    </select>
+
+    <select id="findAll" resultMap="UserResultMap">
+        SELECT * FROM sys_user ORDER BY id
+    </select>
+
+    <insert id="insertUser">
+        INSERT INTO sys_user(username, password_hash, role)
+        VALUES (#{username}, #{passwordHash}, 'user')
+    </insert>
+
+    <update id="updateLastLogin" parameterType="Long">
+        UPDATE sys_user SET last_login_time = CURRENT_TIMESTAMP WHERE id = #{id}
+    </update>
+
+    <update id="deductUploadBalance">
+        UPDATE sys_user
+        SET upload_balance = upload_balance - #{count},
+            upload_used = upload_used + #{count},
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{id} AND upload_balance >= #{count}
+    </update>
+
+    <update id="grantUploadBalance">
+        UPDATE sys_user
+        SET upload_balance = upload_balance + #{amount},
+            update_time = CURRENT_TIMESTAMP
+        WHERE id = #{id}
+    </update>
+
+</mapper>
