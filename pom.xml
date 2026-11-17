@@ -34,7 +34,7 @@
         <module>common</module>
         <module>modules</module>
         <module>modules/chaoxingClass</module>
-        <!--        <module>ui</module>-->
+        <module>xcto-ui</module>
     </modules>
     <properties>
         <java.version>17</java.version>

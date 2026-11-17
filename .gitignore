@@ -85,6 +85,9 @@ CLAUDE.md
 .env
 *.tar
 
+### frontend-maven-plugin 下载的本地 Node ###
+xcto-ui/node/
+
 # 前端构建产物（Maven generate-resources 自动生成）
 application/src/main/resources/static/
 
