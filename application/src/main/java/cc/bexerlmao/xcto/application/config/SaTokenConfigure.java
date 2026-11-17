@@ -9,15 +9,14 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 /**
  * sa-token 路由级鉴权配置。
  *
- * 需要登录的接口：
- * - 题库查看：/question/getAll
- * - 题目上传/更新：/question/save、/question/saveBatch、/question/saveBatchNew、/question/update
- * - 用户中心：/user/**、/auth/logout
+ * 登录后才能使用的接口：
+ * - 题目相关：/question/**（含答题 /question/{classId}、判题 /question/check/**、
+ *   题库查看 /question/getAll、上传 /question/save*）
+ * - 课程列表：/chaoxingClass/list
+ * - 用户中心：/user/**
+ * - 登出：/auth/logout
  *
- * 保持公开的接口：
- * - /auth/login、/auth/register（登录注册）
- * - /question/{classId}、/question/check/**（答题页面）
- * - /chaoxingClass/list（课程列表）
+ * 保持公开的接口：/auth/login、/auth/register
  *
  * 脚本侧：登录后将 tokenValue 通过 satoken 请求头携带即可通过校验。
  */
@@ -28,11 +27,8 @@ public class SaTokenConfigure implements WebMvcConfigurer {
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(new SaInterceptor(handler -> StpUtil.checkLogin()))
                 .addPathPatterns(
-                        "/question/getAll",
-                        "/question/save",
-                        "/question/saveBatch",
-                        "/question/saveBatchNew",
-                        "/question/update",
+                        "/question/**",
+                        "/chaoxingClass/list",
                         "/user/**",
                         "/auth/logout"
                 )
