@@ -148,6 +148,11 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <outputDirectory>${project.basedir}/../target</outputDirectory>
+                    <!-- 分层打包：依赖与业务代码拆成独立 Docker 层，
+                         镜像仓库按层去重后，CI 推送时只传变化的 application 层 -->
+                    <layers>
+                        <enabled>true</enabled>
+                    </layers>
                 </configuration>
             </plugin>
         </plugins>

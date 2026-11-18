@@ -1,16 +1,27 @@
 # ============================================================
 # XCTO 后端镜像（docker-compose.yml 中 xcto-backend 服务使用）
 # ============================================================
-# 使用前请先在本地执行构建：
-#   Windows: build.bat  (产出 target/XCTO.jar)
-#   然后:   docker build -t xcto-backend:latest .
+# 使用分层 jar：先在构建阶段按层解包（dependencies / spring-boot-loader /
+# snapshot-dependencies / application），再分四个 COPY 写入运行镜像。
+# 依赖层几乎不变，配合镜像仓库按层去重，CI 每次只需跨境推送很小的
+# application 层，解决推送阶段长时间卡顿的问题。
+#
 # 前端镜像见 xcto-ui/Dockerfile，两个镜像独立构建、独立推送。
 # ============================================================
 
+FROM eclipse-temurin:17-jre AS extractor
+WORKDIR /app
+COPY target/XCTO.jar app.jar
+# Spring Boot 3.3+/4.x 的 tools 模式，--layers 按层输出到子目录
+RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
+
 FROM eclipse-temurin:17-jre
 WORKDIR /app
-
-COPY target/XCTO.jar app.jar
+# COPY 顺序即层叠加顺序：最稳定的层放最前面
+COPY --from=extractor /app/extracted/dependencies/ ./
+COPY --from=extractor /app/extracted/spring-boot-loader/ ./
+COPY --from=extractor /app/extracted/snapshot-dependencies/ ./
+COPY --from=extractor /app/extracted/application/ ./
 
 EXPOSE 65535
 
