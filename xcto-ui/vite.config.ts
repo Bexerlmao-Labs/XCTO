@@ -19,10 +19,12 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/question': 'http://localhost:65535',
-      '/chaoxingClass': 'http://localhost:65535',
-      '/auth': 'http://localhost:65535',
-      '/user': 'http://localhost:65535',
+      // 与生产环境保持一致：请求带 /api 前缀，转发时剥掉
+      '/api': {
+        target: 'http://xcto.bexerlmao.cc:65535',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
     },
   },
 })

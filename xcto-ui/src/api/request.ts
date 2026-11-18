@@ -2,7 +2,9 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const request = axios.create({
-  baseURL: '/',
+  // 统一 API 前缀：生产环境由宿主机 nginx 剥掉 /api 转发到后端，
+  // 开发环境由 vite proxy 剥掉 /api 转发到本地后端（见 vite.config.ts）
+  baseURL: '/api',
   timeout: 10000,
 })
 
