@@ -141,32 +141,14 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- fat jar 直接输出到仓库根目录 target/（唯一交付产物），不再经 antrun 复制；
+                 模块 target/ 内只留编译中间产物 -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-            </plugin>
-            <!-- 复制到根目录 target：repackage 会替换 application/target/XCTO.jar 本体，
-                 package 阶段无法保证排在 repackage 之后（曾复制到 repackage 前的普通 jar），
-                 改绑 install 阶段保证拿到 fat jar；用 mvnd package 构建时根目录副本可能缺失/过期，
-                 Docker 构建以 application/target/XCTO.jar 为准 -->
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <id>copy-to-root-target</id>
-                        <phase>install</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                        <configuration>
-                            <target>
-                                <copy file="${project.build.directory}/${project.build.finalName}.jar"
-                                      todir="${project.basedir}/../target" overwrite="true"/>
-                            </target>
-                        </configuration>
-                    </execution>
-                </executions>
+                <configuration>
+                    <outputDirectory>${project.basedir}/../target</outputDirectory>
+                </configuration>
             </plugin>
         </plugins>
     </build>

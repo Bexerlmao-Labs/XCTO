@@ -12,9 +12,9 @@
 .claude/
 CLAUDE.md
 
-# Maven build output（保留 application/target/XCTO.jar 用于 Docker 构建）
+# Maven build output（保留根目录 target/XCTO.jar 用于 Docker 构建）
 **/target/
-!application/target/XCTO.jar
+!target/XCTO.jar
 
 # Frontend (rebuilt in Docker)
 xcto-ui/node_modules/
