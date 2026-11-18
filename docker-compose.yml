@@ -9,7 +9,8 @@
 # 本文件对策：
 #   - PostgreSQL 复用 script/docker-compose.database.yml 的 postgres 容器（走外部网络 postgresql-net）
 #   - Redis 独立容器 xcto-redis（避开同名容器 redis），不映射宿主机端口
-#   - 前端映射 127.0.0.1:82，后端映射 127.0.0.1:8081 供宿主机 nginx 反代
+#   - 后端映射 127.0.0.1:8081 供宿主机 nginx 反代
+#   - 前端不再打镜像：CI 编译 dist 后直接发布到 ECS webroot，由宿主机 nginx 托管
 #
 # 注意：复用外部 postgres 时，xcto 库需手工初始化一次：
 #   docker exec -i postgres psql -U postgres < db/init/01-create-tables.sql
@@ -100,25 +101,6 @@ services:
         max-file: "3"
     networks:
       - postgresql-net
-
-  xcto-frontend:
-    image: ccr.ccs.tencentyun.com/xcto/xcto-frontend:latest
-    build:
-      context: ./xcto-ui
-      dockerfile: Dockerfile
-    container_name: xcto-frontend
-    restart: unless-stopped
-    # 仅托管 SPA 静态资源；80/443 由宿主机 nginx 统一接管（TLS 终结），
-    # bringit 前端占用 127.0.0.1:81，XCTO 改用 82 作为宿主机 nginx 的上游
-    ports:
-      - "127.0.0.1:82:80"
-    depends_on:
-      - xcto-backend
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "3"
 
 # 不再依赖 bringit 的 postgresql-net，使用 compose 项目内部默认网络
 networks:
