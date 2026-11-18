@@ -6,9 +6,9 @@ export function login(username: string, password: string): Promise<LoginResult> 
   return request.post<LoginResult>('/auth/login', { username, password }).then((res) => res.data)
 }
 
-/** 注册（免费开放），返回用户信息 */
-export function register(username: string, password: string): Promise<UserInfo> {
-  return request.post<UserInfo>('/auth/register', { username, password }).then((res) => res.data)
+/** 注册（需邀请码），返回用户信息 */
+export function register(username: string, password: string, inviteCode: string): Promise<UserInfo> {
+  return request.post<UserInfo>('/auth/register', { username, password, inviteCode }).then((res) => res.data)
 }
 
 /** 登出 */

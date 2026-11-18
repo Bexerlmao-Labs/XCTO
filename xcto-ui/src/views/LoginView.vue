@@ -23,6 +23,7 @@ const registerForm = reactive({
   username: '',
   password: '',
   confirmPassword: '',
+  inviteCode: '',
 })
 
 const usernameRules = {
@@ -55,6 +56,7 @@ const registerRules: FormRules = {
       trigger: 'blur',
     },
   ],
+  inviteCode: [{ required: true, message: '请输入邀请码', trigger: 'blur' }],
 }
 
 /** 登录成功后统一保存凭据并跳转回原页面 */
@@ -85,7 +87,7 @@ const handleRegister = async () => {
   if (!valid) return
   submitting.value = true
   try {
-    await register(registerForm.username, registerForm.password)
+    await register(registerForm.username, registerForm.password, registerForm.inviteCode.trim())
     ElMessage.success('注册成功，正在自动登录...')
     // 注册即登录
     const result = await login(registerForm.username, registerForm.password)
@@ -103,7 +105,7 @@ const handleRegister = async () => {
     <div class="login-card">
       <div class="login-header">
         <h1 class="login-title">XCTO</h1>
-        <p class="login-subtitle">登录后即可开始刷题，注册免费开放</p>
+        <p class="login-subtitle">登录后即可开始刷题，注册需邀请码</p>
       </div>
 
       <el-tabs v-model="activeTab" stretch>
@@ -170,6 +172,9 @@ const handleRegister = async () => {
                 autocomplete="new-password"
               />
             </el-form-item>
+            <el-form-item label="邀请码" prop="inviteCode">
+              <el-input v-model="registerForm.inviteCode" placeholder="请输入邀请码" />
+            </el-form-item>
             <el-button
               type="primary"
               class="submit-btn"
@@ -183,7 +188,7 @@ const handleRegister = async () => {
         </el-tab-pane>
       </el-tabs>
 
-      <p class="login-footer">注册即用，无需邀请码；刷题永久免费</p>
+      <p class="login-footer">注册需邀请码；刷题永久免费</p>
     </div>
   </div>
 </template>
