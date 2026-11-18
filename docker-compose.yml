@@ -17,6 +17,7 @@
 # 敏感信息可在同目录 .env 文件中覆盖：
 #   POSTGRES_PASSWORD=xxx
 #   REDIS_PASSWORD=xxx
+#   XCTO_INVITE_CODE=xxx   # 注册邀请码，不设置则注册未开放
 #
 # ============================================================
 
@@ -55,6 +56,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    # 必须与 xcto-backend 同网络：backend 只声明了 postgresql-net（与外部 postgres 通信），
+    # redis 若不显式加入则默认在本项目 default 网络，导致 backend 无法解析 xcto-redis 主机名
+    networks:
+      - postgresql-net
     logging:
       driver: json-file
       options:
@@ -83,6 +88,8 @@ services:
       SPRING_DATA_REDIS_PORT: "6379"
       SPRING_DATA_REDIS_USERNAME: default
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
+      # 注册邀请码（同目录 .env 中配置 XCTO_INVITE_CODE=xxx）
+      XCTO_INVITE_CODE: ${XCTO_INVITE_CODE:-}
     depends_on:
       xcto-redis:
         condition: service_healthy

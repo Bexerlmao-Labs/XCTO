@@ -7,8 +7,8 @@ import java.util.Map;
 
 public interface UserService {
 
-    /** 注册新用户（密码 SHA-256 存储），返回用户信息（不含密码） */
-    UserBo register(String username, String password);
+    /** 注册新用户（需邀请码，密码 SHA-256 存储），返回用户信息（不含密码） */
+    UserBo register(String username, String password, String inviteCode);
 
     /** 登录，返回 { tokenName, tokenValue, username, uploadBalance } */
     Map<String, Object> login(String username, String password);

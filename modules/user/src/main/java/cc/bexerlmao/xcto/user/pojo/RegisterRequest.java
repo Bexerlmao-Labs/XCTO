@@ -8,4 +8,7 @@ public class RegisterRequest {
     private String username;
     private String password;
 
+    /** 注册邀请码 */
+    private String inviteCode;
+
 }

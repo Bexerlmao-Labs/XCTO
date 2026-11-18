@@ -6,6 +6,7 @@ import cc.bexerlmao.xcto.user.pojo.UserBo;
 import cc.bexerlmao.xcto.user.service.UserService;
 import cc.bexerlmao.xcto.user.util.Sha256Util;
 import cn.dev33.satoken.stp.StpUtil;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.HashMap;
@@ -15,6 +16,10 @@ import java.util.Map;
 @Service
 public class UserServiceImpl implements UserService {
 
+    /** 注册邀请码，通过环境变量 XCTO_INVITE_CODE（或配置 xcto.invite-code）注入；为空则关闭注册 */
+    @Value("${xcto.invite-code:}")
+    private String inviteCode;
+
     private final UserMapper userMapper;
 
     public UserServiceImpl(UserMapper userMapper) {
@@ -22,9 +27,15 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public UserBo register(String username, String password) {
+    public UserBo register(String username, String password, String inviteCode) {
         if (username == null || username.isBlank() || password == null || password.length() < 6) {
             throw new ApiException(400, "用户名不能为空，密码长度至少 6 位");
+        }
+        if (this.inviteCode == null || this.inviteCode.isBlank()) {
+            throw new ApiException(403, "注册未开放（未配置邀请码）");
+        }
+        if (inviteCode == null || !this.inviteCode.equals(inviteCode.trim())) {
+            throw new ApiException(400, "邀请码错误");
         }
         if (userMapper.findByUsername(username) != null) {
             throw new ApiException(409, "用户名已存在");

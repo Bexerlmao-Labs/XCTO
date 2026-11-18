@@ -19,10 +19,10 @@ public class AuthController {
         this.userService = userService;
     }
 
-    /** 注册（公开） */
+    /** 注册（公开，需邀请码） */
     @PostMapping("/auth/register")
     public UserBo register(@RequestBody RegisterRequest request) {
-        return userService.register(request.getUsername(), request.getPassword());
+        return userService.register(request.getUsername(), request.getPassword(), request.getInviteCode());
     }
 
     /** 登录（公开），返回 tokenName/tokenValue，脚本侧保存 tokenValue 后通过 satoken 请求头携带 */
