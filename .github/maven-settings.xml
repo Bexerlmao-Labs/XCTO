@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- CI 专用 Maven 配置：Maven Central 对 GitHub Actions 共享出口 IP 限流（429 Too Many Requests），
+     走阿里云公共仓库镜像（同步自 Maven Central）规避；本地构建不受此文件影响 -->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.2.0 https://maven.apache.org/xsd/settings-1.2.0.xsd">
+  <mirrors>
+    <mirror>
+      <id>aliyunmaven</id>
+      <!-- 只镜像 central，不影响 pom 里声明的其他仓库 -->
+      <mirrorOf>central</mirrorOf>
+      <name>Aliyun Public Repository</name>
+      <url>https://maven.aliyun.com/repository/public</url>
+    </mirror>
+  </mirrors>
+</settings>

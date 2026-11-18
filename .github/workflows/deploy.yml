@@ -28,8 +28,9 @@ jobs:
           cache: maven
 
       # 前端由独立的 xcto-frontend 镜像构建，后端 jar 不含前端；script 模块是 pom 空壳无需跳过
+      # -s 指定阿里云镜像：Maven Central 会对 Actions 共享出口 IP 限流（429）
       - name: Build with Maven
-        run: mvn -B clean package -DskipTests -Dskip.frontend=true
+        run: mvn -B -s .github/maven-settings.xml clean package -DskipTests -Dskip.frontend=true
 
       # ---------- 构建并推送镜像 ----------
       - name: Login to Tencent TCR
