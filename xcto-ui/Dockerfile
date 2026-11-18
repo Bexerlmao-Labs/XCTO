@@ -11,7 +11,7 @@
 # ============================================================
 
 # 阶段一：构建 SPA
-FROM node:20-alpine AS build
+FROM ccr.ccs.tencentyun.com/xcto/node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
@@ -21,7 +21,7 @@ COPY . .
 RUN npm run build-only
 
 # 阶段二：nginx 托管静态文件（自定义配置：history 路由回退 + 缓存策略）
-FROM nginx:1.27-alpine
+FROM ccr.ccs.tencentyun.com/xcto/nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 
