@@ -1,31 +1,55 @@
 # ============================================================
-# XCTO Docker Compose（前端 + 后端 + Redis 分离部署）
-# 说明：PostgreSQL 不随本 compose 启动，由 script/docker-compose.database.yml
-#       创建的外部网络 postgresql-net 提供，backend 通过容器名 postgres 访问。
-#       Redis 使用默认账号（default 无密码），仅监听本机回环。
+# XCTO Docker Compose（前端 + 后端 + Redis + PostgreSQL 自包含部署）
+#
+# 与 /opt/bringit/ 的 bringit 编排混部在同一台服务器时的端口/资源避让：
+#   - bringit 占用宿主机端口：8080（后端）、81（前端）、6379（redis）、5432（postgres）
+#   - bringit 占用容器名：bringit-backend / bringit-frontend / redis / postgres
+#   - bringit 占用外部网络：postgresql-net
+#
+# 本文件对策：
+#   - PostgreSQL 复用 script/docker-compose.database.yml 的 postgres 容器（走外部网络 postgresql-net）
+#   - Redis 独立容器 xcto-redis（避开同名容器 redis），不映射宿主机端口
+#   - 前端映射 127.0.0.1:82，后端映射 127.0.0.1:8081 供宿主机 nginx 反代
+#
+# 注意：复用外部 postgres 时，xcto 库需手工初始化一次：
+#   docker exec -i postgres psql -U postgres < db/init/01-create-tables.sql
+#
+# 敏感信息可在同目录 .env 文件中覆盖：
+#   POSTGRES_PASSWORD=xxx
+#   REDIS_PASSWORD=xxx
+#
 # ============================================================
 
 services:
-  redis:
+  xcto-redis:
     image: redis:8.10.2
-    container_name: redis
+    container_name: xcto-redis
     restart: on-failure
-    # 开启 AOF 持久化 + 密码认证（默认账号 default，密码见 .env 的 REDIS_PASSWORD）
+    # 开启 AOF 持久化 + 密码认证（默认账号 default）
     command:
       - redis-server
       - --appendonly
       - yes
       - --requirepass
       - "${REDIS_PASSWORD:-redis123456}"
+      - --user
+      - "${REDIS_USER:-default}"
+      - "on"
+      - ">${REDIS_PASSWORD:-redis123456}"
+      - "~*"
+      - "&*"
+      - "+@all"
     environment:
       TZ: Asia/Shanghai
       # 供容器内 healthcheck 使用
+      REDIS_USER: ${REDIS_USER:-default}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
-    # 不映射宿主机端口：backend 走 compose 内部网络以服务名访问 redis；
-    # 宿主机映射在服务器上易与旧实例/其他 redis 端口冲突（Bind ... port is already allocated）
-    # 如需本地调试可临时改回：127.0.0.1:6379:6379
+    # 不映射宿主机端口：backend 走 compose 内部网络以服务名访问；
+    # bringit 已占用宿主机 6379，如需本地调试可临时改用 6380：
+    # ports:
+    #   - "127.0.0.1:6380:6379"
     volumes:
-      - redis-data:/data
+      - xcto-redis-data:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 10s
@@ -36,8 +60,6 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    networks:
-      - postgresql-net
 
   xcto-backend:
     # 必须写 TCR 全名：服务器上 docker compose pull 才能从 TCR 拉取 CI 推送的镜像
@@ -46,22 +68,31 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: xcto-backend
-    # 反向代理已改为外部手动配置，如需直连后端调试可放开端口
-    # ports:
-    #   - "8081:65535"
+    restart: unless-stopped
+    # 后端不直接暴露公网；宿主机 nginx 按业务前缀反代到 127.0.0.1:8081
+    # （8080 已被 bringit 后端占用，改用 8081）
+    ports:
+      - "127.0.0.1:8081:65535"
     environment:
+      TZ: Asia/Shanghai
       SPRING_PROFILES_ACTIVE: prod
       SPRING_DATASOURCE_URL: jdbc:postgresql://${DB_HOST:-postgres}:5432/${DB_NAME:-xcto}?useUnicode=true&characterEncoding=utf8&stringtype=unspecified
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-123456}
-      SPRING_DATA_REDIS_HOST: ${REDIS_HOST:-redis}
-      SPRING_DATA_REDIS_PORT: "${REDIS_PORT:-6379}"
-      SPRING_DATA_REDIS_USERNAME: ${REDIS_USER:-default}
+      SPRING_DATA_REDIS_HOST: xcto-redis
+      SPRING_DATA_REDIS_PORT: "6379"
+      SPRING_DATA_REDIS_USERNAME: default
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
     depends_on:
-      redis:
+      xcto-redis:
         condition: service_healthy
-    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+    networks:
+      - postgresql-net
 
   xcto-frontend:
     image: ccr.ccs.tencentyun.com/xcto/xcto-frontend:latest
@@ -69,18 +100,25 @@ services:
       context: ./xcto-ui
       dockerfile: Dockerfile
     container_name: xcto-frontend
-    # 仅托管 SPA 静态资源；反向代理由外部手动配置，此端口即上游地址
+    restart: unless-stopped
+    # 仅托管 SPA 静态资源；80/443 由宿主机 nginx 统一接管（TLS 终结），
+    # bringit 前端占用 127.0.0.1:81，XCTO 改用 82 作为宿主机 nginx 的上游
     ports:
-      - "8080:80"
+      - "127.0.0.1:82:80"
     depends_on:
       - xcto-backend
-    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
 
-# 数据库编排（script/docker-compose.database.yml）创建的外部网络，backend 通过容器名 postgres 访问数据库
+# 不再依赖 bringit 的 postgresql-net，使用 compose 项目内部默认网络
 networks:
   postgresql-net:
     external: true
     name: postgresql-net
 
 volumes:
-  redis-data:
+  # 项目名会作为前缀（xcto_redis-data），与 bringit 的 redis-data 不冲突
+  xcto-redis-data:
