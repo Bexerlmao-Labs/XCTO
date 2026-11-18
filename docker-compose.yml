@@ -10,7 +10,8 @@
 #   - PostgreSQL 复用 script/docker-compose.database.yml 的 postgres 容器（走外部网络 postgresql-net）
 #   - Redis 独立容器 xcto-redis（避开同名容器 redis），不映射宿主机端口
 #   - 后端映射 127.0.0.1:8081 供宿主机 nginx 反代
-#   - 前端不再打镜像：CI 编译 dist 后直接发布到 ECS webroot，由宿主机 nginx 托管
+#   - 前端镜像只是静态文件载体（无 Web 服务器）：容器一次性拷贝产物到
+#     宿主机 webroot 后退出，页面由宿主机 nginx 托管
 #
 # 注意：复用外部 postgres 时，xcto 库需手工初始化一次：
 #   docker exec -i postgres psql -U postgres < db/init/01-create-tables.sql
@@ -101,6 +102,21 @@ services:
         max-file: "3"
     networks:
       - postgresql-net
+
+  xcto-frontend:
+    # 前端静态文件载体镜像（busybox + dist，无 nginx/无常驻进程）。
+    # compose up 时作为一次性容器运行：清空宿主机 webroot、拷入新产物、退出。
+    # 页面由宿主机 nginx 直接从磁盘托管（SPA 回退配置在宝塔站点 nginx.conf）。
+    image: ccr.ccs.tencentyun.com/xcto/xcto-frontend:latest
+    build:
+      context: ./xcto-ui
+      dockerfile: Dockerfile
+    container_name: xcto-frontend
+    restart: "no"
+    volumes:
+      # 宿主机宝塔站点的静态根目录
+      - /www/dk_project/wwwroot/xcto.bexerlmao.cc:/webroot
+    entrypoint: ["/bin/sh", "-c", "find /webroot -mindepth 1 -delete && cp -r /dist/. /webroot/ && echo 'frontend deployed:' && ls /webroot"]
 
 # 不再依赖 bringit 的 postgresql-net，使用 compose 项目内部默认网络
 networks:

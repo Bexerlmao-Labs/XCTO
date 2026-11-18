@@ -10,8 +10,9 @@ on:
 env:
   # 腾讯云 TCR 经典个人版地址（腾讯云 ECS 拉取自动走内网）
   TCR_REGISTRY: ccr.ccs.tencentyun.com
-  # 前端不再打镜像：CI 编译 dist 后发布到 ECS webroot，由宿主机 nginx 托管
   BACKEND_IMAGE: ccr.ccs.tencentyun.com/xcto/xcto-backend
+  # 前端镜像只是静态文件载体（无 Web 服务器），部署时由一次性容器拷贝产物到宿主机 webroot
+  FRONTEND_IMAGE: ccr.ccs.tencentyun.com/xcto/xcto-frontend
 
 jobs:
   build-push-deploy:
@@ -65,30 +66,20 @@ jobs:
             ${{ env.BACKEND_IMAGE }}:latest
             ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
 
-      # ---------- 前端静态产物发布到 ECS webroot（宿主机 nginx 托管） ----------
-      - name: Clear ECS frontend webroot
-        uses: appleboy/ssh-action@v1.2.0
+      # 前端镜像 = busybox + dist 静态文件载体，无 Web 服务器；
+      # dist 已由上面 Build frontend 步骤编译好，构建上下文直接带走
+      - name: Build & push frontend image
+        uses: docker/build-push-action@v6
         with:
-          host: ${{ secrets.ECS_HOST }}
-          port: ${{ secrets.ECS_PORT || 22 }}
-          username: ${{ secrets.ECS_USER }}
-          key: ${{ secrets.ECS_SSH_KEY }}
-          timeout: 30s
-          script_stop: true
-          script: |
-            # 清空旧产物（带内容哈希的 assets 会随版本累积），再由下面一步上传新产物
-            rm -rf /www/dk_project/wwwroot/xcto.bexerlmao.cc/*
-
-      - name: Upload frontend dist to ECS
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.ECS_HOST }}
-          port: ${{ secrets.ECS_PORT || 22 }}
-          username: ${{ secrets.ECS_USER }}
-          key: ${{ secrets.ECS_SSH_KEY }}
-          source: "xcto-ui/dist/*"
-          target: "/www/dk_project/wwwroot/xcto.bexerlmao.cc"
-          strip_components: 2
+          context: ./xcto-ui
+          file: ./xcto-ui/Dockerfile
+          push: true
+          # 关闭 attestation（同后端）：TCR 个人版对这类清单支持不佳
+          provenance: false
+          sbom: false
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
 
       # ---------- 部署到 ECS ----------
       - name: Deploy to ECS
@@ -118,7 +109,7 @@ jobs:
             echo "$TCR_PASSWORD" | docker login ${{ env.TCR_REGISTRY }} --username "$TCR_USERNAME" --password-stdin
             # 只拉取自建镜像；database/redis 用服务器本地镜像（docker compose pull 不带参数会连 Docker Hub，
             # 本地 postgres/redis 与远端 digest 不一致会被判为有更新，每次重新下几百 MB 导致超时）
-            docker compose pull xcto-backend
+            docker compose pull xcto-backend xcto-frontend
             docker compose up -d --remove-orphans
             docker image prune -f
 
