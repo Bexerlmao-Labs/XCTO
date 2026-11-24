@@ -58,12 +58,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # runner 在容器内、workspace 不在宿主机挂载范围内：
-      # 先把源码同步到 /tmp（即宿主机 work 目录），后续容器挂载宿主机路径编译
+      # runner 在容器内：workspace 先同步到 /tmp/xcto-build（容器的 /tmp
+      # 即宿主机 /vol1/1000/application/github-runner/work，双向实时可见；
+      # 注意容器内直接写 /vol1 路径是单向缓存视图，宿主机写入不可见，不能用）
       - name: Sync workspace to host-visible path
         run: |
-          mkdir -p "$HOST_BUILD"
-          rsync -a --delete --exclude .git "$GITHUB_WORKSPACE/" "$HOST_BUILD/"
+          mkdir -p /tmp/xcto-build
+          rsync -a --delete --exclude .git "$GITHUB_WORKSPACE/" /tmp/xcto-build/
 
       # 后端 jar 不含前端；script 模块是 pom 空壳无需跳过
       # -s 指定阿里云镜像仓库 settings，避免 Maven Central 限流（429）
