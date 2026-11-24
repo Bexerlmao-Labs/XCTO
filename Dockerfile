@@ -10,14 +10,14 @@
 # 后端镜像独立构建、独立推送。
 # ============================================================
 
-# 基础镜像直接用 Docker Hub 官方源
-FROM eclipse-temurin:17-jre AS extractor
+# 基础镜像走 daocloud 镜像源（NAS 直连 Docker Hub 不稳定，曾导致 CI 构建期拉取失败）
+FROM docker.m.daocloud.io/library/eclipse-temurin:17-jre AS extractor
 WORKDIR /app
 COPY target/XCTO.jar app.jar
 # Spring Boot 3.3+/4.x 的 tools 模式，--layers 按层输出到子目录
 RUN java -Djarmode=tools -jar app.jar extract --layers --destination extracted
 
-FROM eclipse-temurin:17-jre
+FROM docker.m.daocloud.io/library/eclipse-temurin:17-jre
 WORKDIR /app
 # COPY 顺序即层叠加顺序：最稳定的层放最前面
 COPY --from=extractor /app/extracted/dependencies/ ./
