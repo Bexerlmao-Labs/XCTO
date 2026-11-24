@@ -1,8 +1,10 @@
-# 构建 context 瘦身：避免把依赖目录发进 docker daemon
+# 构建上下文瘦身：避免把依赖目录发进 docker daemon
+# target 用 /* 而非整个目录排除：需要保留编译产物 target/XCTO.jar 进构建上下文
 .git
 .github
 **/node_modules
-**/target
+**/target/*
+!**/target/XCTO.jar
 **/dist
 xcto-ui/node
 *.iml
