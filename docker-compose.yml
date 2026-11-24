@@ -1,32 +1,33 @@
 # ============================================================
-# XCTO Docker Compose（前端 + 后端 + Redis + PostgreSQL 自包含部署）
+# XCTO Docker Compose（NAS 部署）
 #
-# 与 /opt/bringit/ 的 bringit 编排混部在同一台服务器时的端口/资源避让：
-#   - bringit 占用宿主机端口：8080（后端）、81（前端）、6379（redis）、5432（postgres）
-#   - bringit 占用容器名：bringit-backend / bringit-frontend / redis / postgres
-#   - bringit 占用外部网络：postgresql-net
+# 部署位置：NAS /vol1/1000/application/xcto/（本文件 + .env）
+# 静态资源：前端 dist 由 CI 发布到 /vol1/1000/www/xcto/dist，
+#           由 nas-nginx（host 网络）托管，见 deploy/nginx/xcto.conf
 #
-# 本文件对策：
-#   - PostgreSQL 复用 script/docker-compose.database.yml 的 postgres 容器（走外部网络 postgresql-net）
-#   - Redis 独立容器 xcto-redis（避开同名容器 redis），不映射宿主机端口
-#   - 后端映射 127.0.0.1:8081 供宿主机 nginx 反代
-#   - 前端不打镜像：CI 编译 dist 后打包 tar.gz 上传到 /opt/xcto/frontend/dist，由宿主机 nginx 托管
+# 与 ECS 时代的差异：
+#   - PostgreSQL 不再复用外部容器编排——NAS 上 postgres 容器（postgres:18.6）
+#     已独立部署，挂在外部网络 postgresql-net，别名 postgres，
+#     本编排直接复用，不再创建数据库容器
+#   - Redis 独立容器 xcto-redis，不映射宿主机端口
+#   - 后端映射 127.0.0.1:8081 供 nas-nginx（host 网络）反代 /api
+#   - 前端不打镜像、不进编排：CI 编译 dist 后直接发布到宿主机 webroot
 #
-# 注意：复用外部 postgres 时，xcto 库需手工初始化一次：
-#   docker exec -i postgres psql -U postgres < db/init/01-create-tables.sql
+# 首次初始化数据库（本次迁移已手工完成，留作记录）：
+#   docker exec -i postgres psql -U Bexerlmao -d xcto < db/init/01-create-tables.sql
 #
-# 敏感信息可在同目录 .env 文件中覆盖：
+# 敏感信息在 /vol1/1000/application/xcto/.env 中配置：
+#   POSTGRES_USER=Bexerlmao
 #   POSTGRES_PASSWORD=xxx
 #   REDIS_PASSWORD=xxx
 #   XCTO_INVITE_CODE=xxx   # 注册邀请码，不设置则注册未开放
-#
 # ============================================================
 
 services:
   xcto-redis:
     image: redis:8.10.2
     container_name: xcto-redis
-    restart: on-failure
+    restart: unless-stopped
     # 开启 AOF 持久化 + 密码认证（默认账号 default）
     command:
       - redis-server
@@ -43,13 +44,9 @@ services:
       - "+@all"
     environment:
       TZ: Asia/Shanghai
-      # 供容器内 healthcheck 使用
       REDIS_USER: ${REDIS_USER:-default}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
-    # 不映射宿主机端口：backend 走 compose 内部网络以服务名访问；
-    # bringit 已占用宿主机 6379，如需本地调试可临时改用 6380：
-    # ports:
-    #   - "127.0.0.1:6380:6379"
+    # 不映射宿主机端口：backend 走 compose 内部网络以服务名访问
     volumes:
       - xcto-redis-data:/data
     healthcheck:
@@ -57,8 +54,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # 必须与 xcto-backend 同网络：backend 只声明了 postgresql-net（与外部 postgres 通信），
-    # redis 若不显式加入则默认在本项目 default 网络，导致 backend 无法解析 xcto-redis 主机名
     networks:
       - postgresql-net
     logging:
@@ -68,28 +63,28 @@ services:
         max-file: "3"
 
   xcto-backend:
-    # 必须写 TCR 全名：服务器上 docker compose pull 才能从 TCR 拉取 CI 推送的镜像
+    # 必须写 TCR 全名：docker compose pull 才能从 TCR 拉取 Jenkins 推送的镜像
     image: ccr.ccs.tencentyun.com/xcto/xcto-backend:latest
     build:
       context: .
       dockerfile: Dockerfile
     container_name: xcto-backend
     restart: unless-stopped
-    # 后端不直接暴露公网；宿主机 nginx 按业务前缀反代到 127.0.0.1:8081
-    # （8080 已被 bringit 后端占用，改用 8081）
+    # 后端不直接暴露公网；nas-nginx（host 网络）按 /api 前缀反代到 127.0.0.1:8081
     ports:
       - "127.0.0.1:8081:65535"
     environment:
       TZ: Asia/Shanghai
       SPRING_PROFILES_ACTIVE: prod
+      # postgres = NAS 现有 postgres 容器在 postgresql-net 网络中的别名
       SPRING_DATASOURCE_URL: jdbc:postgresql://${DB_HOST:-postgres}:5432/${DB_NAME:-xcto}?useUnicode=true&characterEncoding=utf8&stringtype=unspecified
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-postgres}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-Bexerlmao}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-123456}
       SPRING_DATA_REDIS_HOST: xcto-redis
       SPRING_DATA_REDIS_PORT: "6379"
       SPRING_DATA_REDIS_USERNAME: default
       SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123456}
-      # 注册邀请码（同目录 .env 中配置 XCTO_INVITE_CODE=xxx）
+      # 注册邀请码（.env 中配置 XCTO_INVITE_CODE=xxx）
       XCTO_INVITE_CODE: ${XCTO_INVITE_CODE:-}
     depends_on:
       xcto-redis:
@@ -102,12 +97,11 @@ services:
     networks:
       - postgresql-net
 
-# 不再依赖 bringit 的 postgresql-net，使用 compose 项目内部默认网络
+# 复用 NAS 上 postgres 容器所在的外部网络（postgres 容器别名 postgres）
 networks:
   postgresql-net:
     external: true
     name: postgresql-net
 
 volumes:
-  # 项目名会作为前缀（xcto_redis-data），与 bringit 的 redis-data 不冲突
   xcto-redis-data:

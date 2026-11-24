@@ -1,120 +1,129 @@
+# ============================================================
+# XCTO Build & Deploy — NAS self-hosted runner
+#
+# 运行环境：NAS 上的 nas-github-runner 容器
+#   （myoung34/github-runner，org 级注册到 Bexerlmao-Labs，label: nas）
+#   容器内挂载：docker CLI + docker.sock（可操作宿主机 daemon）、
+#              /tmp ↔ 宿主机 /vol1/1000/application/github-runner/work
+#
+# 关键点：runner 在容器内，docker run -v 的路径由宿主机 daemon 解析，
+# 因此所有 bind mount 必须用宿主机路径（HOST_BUILD）。
+# 构建流程：先把 workspace 同步到 /tmp/xcto-build（宿主机可见），
+# 再以宿主机路径挂载进 maven/node 容器编译。
+#
+# 需要的 GitHub Secrets（沿用原 ECS 时代的配置，无新增）：
+#   TCR_USERNAME / TCR_PASSWORD — 腾讯云 TCR 个人版凭证
+#
+# 数据库/Redis 凭证不在本文件管理：部署目录 /vol1/1000/application/xcto/.env
+# 由 NAS 侧维护，部署容器挂载该目录读取。
+# ============================================================
+
 name: Build & Deploy
 
-# 合并到 main（即 push 到 main）后触发
 on:
   push:
     branches: [ main ]
-  # 支持在 Actions 页面手动触发
   workflow_dispatch:
 
+# 同一时间只允许一个部署，避免两次 push 并发写 NAS
+concurrency:
+  group: deploy-nas
+  cancel-in-progress: false
+
 env:
-  # 腾讯云 TCR 经典个人版地址（腾讯云 ECS 拉取自动走内网）
+  # 腾讯云 TCR（NAS 拉取走公网，与 ECS 时代一致）
   TCR_REGISTRY: ccr.ccs.tencentyun.com
   BACKEND_IMAGE: ccr.ccs.tencentyun.com/xcto/xcto-backend
-  # 前端不打镜像：编译产物打 tar.gz 上传到 /opt/xcto/frontend/dist，宿主机 nginx 直接托管
+
+  # NAS 宿主机路径（docker -v 挂载用）
+  HOST_BUILD: /vol1/1000/application/github-runner/work/xcto-build
+  HOST_CACHE: /vol1/1000/application/github-runner/cache
+  FRONTEND_ROOT: /vol1/1000/www/xcto
+  DEPLOY_DIR: /vol1/1000/application/xcto
+
+  # 辅助镜像走 daocloud 镜像源（宿主机 daemon 直连 Docker Hub 不稳定）
+  MAVEN_IMAGE: docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17
+  NODE_IMAGE: docker.m.daocloud.io/library/node:20-alpine
+  TOOL_IMAGE: docker.m.daocloud.io/library/alpine:3.20
+  COMPOSE_IMAGE: docker.m.daocloud.io/library/docker:cli
 
 jobs:
   build-push-deploy:
-    runs-on: ubuntu-latest
+    # org 级 runner 的自定义 label
+    runs-on: [ self-hosted, nas ]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
+      # runner 在容器内、workspace 不在宿主机挂载范围内：
+      # 先把源码同步到 /tmp（即宿主机 work 目录），后续容器挂载宿主机路径编译
+      - name: Sync workspace to host-visible path
+        run: |
+          mkdir -p "$HOST_BUILD"
+          rsync -a --delete --exclude .git "$GITHUB_WORKSPACE/" "$HOST_BUILD/"
 
       # 后端 jar 不含前端；script 模块是 pom 空壳无需跳过
-      # -s 指定阿里云镜像：Maven Central 会对 Actions 共享出口 IP 限流（429）
+      # -s 指定阿里云镜像仓库 settings，避免 Maven Central 限流（429）
       - name: Build with Maven
-        run: mvn -B -s .github/maven-settings.xml clean package -DskipTests -Dskip.frontend=true
-
-      # ---------- 前端：CI 直接编译，产物发布到 ECS webroot ----------
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-          cache-dependency-path: xcto-ui/package-lock.json
+        run: |
+          docker run --rm \
+            -v "$HOST_BUILD:/ws" -w /ws \
+            -v "$HOST_CACHE/maven:/root/.m2" \
+            "$MAVEN_IMAGE" \
+            mvn -B -s .github/maven-settings.xml clean package -DskipTests -Dskip.frontend=true
 
       - name: Build frontend
-        run: cd xcto-ui && npm ci && npm run build-only
-
-      # dist 内是大量小文件：打成单个 tar.gz，文本压缩率高，且避免逐文件 scp 的握手开销
-      - name: Pack frontend dist
-        run: tar -czf xcto-dist.tar.gz -C xcto-ui/dist .
+        run: |
+          docker run --rm \
+            -v "$HOST_BUILD:/ws" -w /ws/xcto-ui \
+            -v "$HOST_CACHE/npm:/root/.npm" \
+            "$NODE_IMAGE" \
+            sh -c "npm ci && npm run build-only"
 
       # ---------- 构建并推送镜像 ----------
       - name: Login to Tencent TCR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.TCR_REGISTRY }}
-          username: ${{ secrets.TCR_USERNAME }}
-          password: ${{ secrets.TCR_PASSWORD }}
+        run: echo "${{ secrets.TCR_PASSWORD }}" | docker login "$TCR_REGISTRY" --username "${{ secrets.TCR_USERNAME }}" --password-stdin
 
       - name: Build & push backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: ./Dockerfile
-          push: true
-          # 关闭 attestation（provenance/SBOM）：TCR 个人版对这类清单支持不佳，会导致推送阶段反复重试、
-          # 日志卡在 resolving provenance for metadata file 很久
-          provenance: false
-          sbom: false
-          tags: |
-            ${{ env.BACKEND_IMAGE }}:latest
-            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+        run: |
+          # 分层 jar 镜像；关闭 provenance/sbom（TCR 个人版对这类清单支持不佳，
+          # 会导致推送阶段反复重试、日志卡在 resolving provenance 很久）
+          docker build --provenance=false --sbom=false \
+            -f "$HOST_BUILD/Dockerfile" "$HOST_BUILD" \
+            -t "$BACKEND_IMAGE:latest" \
+            -t "$BACKEND_IMAGE:${GITHUB_SHA::8}"
+          docker push "$BACKEND_IMAGE:latest"
+          docker push "$BACKEND_IMAGE:${GITHUB_SHA::8}"
 
-      - name: Upload frontend bundle to ECS
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.ECS_HOST }}
-          port: ${{ secrets.ECS_PORT || 22 }}
-          username: ${{ secrets.ECS_USER }}
-          key: ${{ secrets.ECS_SSH_KEY }}
-          source: "xcto-dist.tar.gz"
-          target: "/opt/xcto/frontend"
+      # ---------- 前端：发布静态产物到 NAS webroot ----------
+      # dist 内大量小文件：流式 tar 管道直接解压到宿主机路径，
+      # 避免 runner 容器内无法直接写 /vol1/1000/www 的问题
+      - name: Publish frontend dist
+        run: |
+          tar -C "$HOST_BUILD/xcto-ui/dist" -czf - . | \
+          docker run --rm -i \
+            -v "$FRONTEND_ROOT:/target" \
+            "$TOOL_IMAGE" \
+            sh -c "mkdir -p /target/dist && rm -rf /target/dist/* && tar -xzf - -C /target/dist"
 
-      # ---------- 部署到 ECS ----------
-      - name: Deploy to ECS
-        uses: appleboy/ssh-action@v1.2.0
-        env:
-          # 传给远端脚本用于 docker login（GitHub 会自动在日志中打码 secret）
-          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
-          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
-        with:
-          host: ${{ secrets.ECS_HOST }}
-          # ECS 的 sshd 端口（在仓库 Settings → Secrets 里配置 ECS_PORT；未配置时回落 22）
-          port: ${{ secrets.ECS_PORT || 22 }}
-          username: ${{ secrets.ECS_USER }}
-          key: ${{ secrets.ECS_SSH_KEY }}
-          # SSH 连接建立超时（默认 30s）
-          timeout: 30s
-          # 远程命令执行超时：镜像拉取较慢，放宽到 30 分钟（注意：该参数是 command_timeout，而非 timeout）
-          command_timeout: 30m
-          # 把上面 env 里定义的变量传给远端脚本
-          envs: TCR_USERNAME,TCR_PASSWORD
-          # 任一命令失败（非 0 退出码）即中止后续命令，避免误判部署成功
-          script_stop: true
-          script: |
-            # 解压前端产物到 dist 目录（先清空旧的带哈希资源）
-            mkdir -p /opt/xcto/frontend/dist
-            rm -rf /opt/xcto/frontend/dist/*
-            tar -xzf /opt/xcto/frontend/xcto-dist.tar.gz -C /opt/xcto/frontend/dist
-            rm /opt/xcto/frontend/xcto-dist.tar.gz
-            cd /opt/xcto
-            # 拉取前先登录 TCR（服务器 daemon 没有长期凭证，每次部署时登录一次；
-            # --password-stdin 避免密码出现在进程列表/历史里）
-            echo "$TCR_PASSWORD" | docker login ${{ env.TCR_REGISTRY }} --username "$TCR_USERNAME" --password-stdin
-            # 只拉取自建镜像；database/redis 用服务器本地镜像（docker compose pull 不带参数会连 Docker Hub，
-            # 本地 postgres/redis 与远端 digest 不一致会被判为有更新，每次重新下几百 MB 导致超时）
-            docker compose pull xcto-backend
-            docker compose up -d --remove-orphans
-            docker image prune -f
+      # ---------- 部署到 NAS ----------
+      # runner 容器内虽有 compose 插件，但 .env 在 NAS 侧部署目录里：
+      # 用 docker:cli 容器挂载部署目录执行，凭证由 NAS 侧 .env 提供
+      - name: Deploy to NAS
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$DEPLOY_DIR:/work" -w /work \
+            -e TCR_USERNAME="${{ secrets.TCR_USERNAME }}" \
+            -e TCR_PASSWORD="${{ secrets.TCR_PASSWORD }}" \
+            -e TCR_REGISTRY \
+            "$COMPOSE_IMAGE" \
+            sh -c '
+              echo "$TCR_PASSWORD" | docker login "$TCR_REGISTRY" --username "$TCR_USERNAME" --password-stdin
+              docker compose pull xcto-backend
+              docker compose up -d --remove-orphans
+              docker image prune -f
+            '
 
       - name: Deployment summary
-        run: echo "✅ 已部署 commit ${{ github.sha }} 到 ECS"
+        run: echo "✅ 已部署 ${GITHUB_SHA::8} 到 NAS（前端 $FRONTEND_ROOT，后端 $DEPLOY_DIR）"

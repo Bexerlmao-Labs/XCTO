@@ -19,9 +19,9 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      // 与生产环境保持一致：请求带 /api 前缀，转发时剥掉
+      // 与生产环境保持一致：请求带 /api 前缀，NAS nginx 转发时剥掉
       '/api': {
-        target: 'http://xcto.bexerlmao.cc:65535',
+        target: 'http://xcto.bexerlmao.cc',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
