@@ -11,6 +11,9 @@
 # 构建流程：先把 workspace 同步到 /tmp/xcto-build（宿主机可见），
 # 再以宿主机路径挂载进 maven/node 容器编译。
 #
+# 镜像策略：后端镜像在 NAS 本地构建，以 compose 引用的镜像名打 tag 后
+# 直接本地部署；同时推送腾讯云 TCR 仅作备份/回滚用（NAS 部署不拉取）。
+#
 # 需要的 GitHub Secrets（沿用原 ECS 时代的配置，无新增）：
 #   TCR_USERNAME / TCR_PASSWORD — 腾讯云 TCR 个人版凭证
 #
@@ -31,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # 腾讯云 TCR（NAS 拉取走公网，与 ECS 时代一致）
+  # 腾讯云 TCR：仅作镜像备份/回滚仓库（NAS 部署直接用本地构建的镜像）
   TCR_REGISTRY: ccr.ccs.tencentyun.com
   BACKEND_IMAGE: ccr.ccs.tencentyun.com/xcto/xcto-backend
 
@@ -80,18 +83,19 @@ jobs:
             "$NODE_IMAGE" \
             sh -c "npm ci && npm run build-only"
 
-      # ---------- 构建并推送镜像 ----------
+      # ---------- 镜像：本地构建 + TCR 备份推送 ----------
       - name: Login to Tencent TCR
         run: echo "${{ secrets.TCR_PASSWORD }}" | docker login "$TCR_REGISTRY" --username "${{ secrets.TCR_USERNAME }}" --password-stdin
 
-      - name: Build & push backend image
+      - name: Build backend image
         run: |
-          # 分层 jar 镜像；关闭 provenance/sbom（TCR 个人版对这类清单支持不佳，
-          # 会导致推送阶段反复重试、日志卡在 resolving provenance 很久）
+          # 分层 jar 镜像；关闭 provenance/sbom（TCR 个人版对这类清单支持不佳）
+          # tag 直接用 compose 里引用的镜像名：本地存在该 tag 时 compose up 不会去 TCR 拉取
           docker build --provenance=false --sbom=false \
             -f "$HOST_BUILD/Dockerfile" "$HOST_BUILD" \
             -t "$BACKEND_IMAGE:latest" \
             -t "$BACKEND_IMAGE:${GITHUB_SHA::8}"
+          # 备份推送到 TCR：仅用于回滚/异地恢复，NAS 部署不依赖它
           docker push "$BACKEND_IMAGE:latest"
           docker push "$BACKEND_IMAGE:${GITHUB_SHA::8}"
 
@@ -107,23 +111,15 @@ jobs:
             sh -c "mkdir -p /target/dist && rm -rf /target/dist/* && tar -xzf - -C /target/dist"
 
       # ---------- 部署到 NAS ----------
-      # runner 容器内虽有 compose 插件，但 .env 在 NAS 侧部署目录里：
-      # 用 docker:cli 容器挂载部署目录执行，凭证由 NAS 侧 .env 提供
+      # 上一步已在本地构建出 compose 引用的镜像 tag，up 时不会触发 TCR 拉取
+      # 凭证由 NAS 侧部署目录的 .env 提供（挂载 DEPLOY_DIR）
       - name: Deploy to NAS
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "$DEPLOY_DIR:/work" -w /work \
-            -e TCR_USERNAME="${{ secrets.TCR_USERNAME }}" \
-            -e TCR_PASSWORD="${{ secrets.TCR_PASSWORD }}" \
-            -e TCR_REGISTRY \
             "$COMPOSE_IMAGE" \
-            sh -c '
-              echo "$TCR_PASSWORD" | docker login "$TCR_REGISTRY" --username "$TCR_USERNAME" --password-stdin
-              docker compose pull xcto-backend
-              docker compose up -d --remove-orphans
-              docker image prune -f
-            '
+            docker compose up -d --remove-orphans
 
       - name: Deployment summary
         run: echo "✅ 已部署 ${GITHUB_SHA::8} 到 NAS（前端 $FRONTEND_ROOT，后端 $DEPLOY_DIR）"
