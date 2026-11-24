@@ -85,8 +85,13 @@ jobs:
             sh -c "npm ci && npm run build-only"
 
       # ---------- 镜像：本地构建 + TCR 备份推送 ----------
+      # 密钥必须走 env 注入：直接写在 run 里会被渲染进脚本文本，
+      # 密码含引号/$ 等字符时会破坏 shell 语法（曾导致 exit 2）
       - name: Login to Tencent TCR
-        run: echo "${{ secrets.TCR_PASSWORD }}" | docker login "$TCR_REGISTRY" --username "${{ secrets.TCR_USERNAME }}" --password-stdin
+        env:
+          TCR_USERNAME: ${{ secrets.TCR_USERNAME }}
+          TCR_PASSWORD: ${{ secrets.TCR_PASSWORD }}
+        run: echo "$TCR_PASSWORD" | docker login "$TCR_REGISTRY" --username "$TCR_USERNAME" --password-stdin
 
       - name: Build backend image
         run: |
