@@ -1,5 +1,6 @@
 # ============================================================
 # XCTO Docker Compose（NAS 部署）
+name: xcto
 #
 # 部署位置：NAS /vol1/1000/application/xcto/（本文件 + .env）
 # 静态资源：前端 dist 由 CI 发布到 /vol1/1000/www/xcto/dist，
