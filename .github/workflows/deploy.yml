@@ -38,8 +38,10 @@ env:
   TCR_REGISTRY: ccr.ccs.tencentyun.com
   BACKEND_IMAGE: ccr.ccs.tencentyun.com/xcto/xcto-backend
 
-  # NAS 宿主机路径（docker -v 挂载用）
+  # NAS 宿主机路径（仅用于 docker -v 挂载，由 daemon 在宿主机解析）
   HOST_BUILD: /vol1/1000/application/github-runner/work/xcto-build
+  # runner 容器内路径（/tmp 即宿主机 work 目录，容器内读文件必须用它）
+  CTX: /tmp/xcto-build
   HOST_CACHE: /vol1/1000/application/github-runner/cache
   FRONTEND_ROOT: /vol1/1000/www/xcto
   DEPLOY_DIR: /vol1/1000/application/xcto
@@ -97,8 +99,10 @@ jobs:
         run: |
           # 分层 jar 镜像；关闭 provenance/sbom（TCR 个人版对这类清单支持不佳）
           # tag 直接用 compose 里引用的镜像名：本地存在该 tag 时 compose up 不会去 TCR 拉取
+          # 注意：-f/context 用容器内 CTX 路径（CLI 读文件走容器视图），
+          #       若写 HOST_BUILD 会被 /vol1 的单向缓存视图坑掉（读不到文件）
           docker build --provenance=false --sbom=false \
-            -f "$HOST_BUILD/Dockerfile" "$HOST_BUILD" \
+            -f "$CTX/Dockerfile" "$CTX" \
             -t "$BACKEND_IMAGE:latest" \
             -t "$BACKEND_IMAGE:${GITHUB_SHA::8}"
           # 备份推送到 TCR：仅用于回滚/异地恢复，NAS 部署不依赖它
@@ -108,9 +112,10 @@ jobs:
       # ---------- 前端：发布静态产物到 NAS webroot ----------
       # dist 内大量小文件：流式 tar 管道直接解压到宿主机路径，
       # 避免 runner 容器内无法直接写 /vol1/1000/www 的问题
+      # （tar 读源文件走容器视图，必须用 /tmp 路径）
       - name: Publish frontend dist
         run: |
-          tar -C "$HOST_BUILD/xcto-ui/dist" -czf - . | \
+          tar -C "$CTX/xcto-ui/dist" -czf - . | \
           docker run --rm -i \
             -v "$FRONTEND_ROOT:/target" \
             "$TOOL_IMAGE" \
