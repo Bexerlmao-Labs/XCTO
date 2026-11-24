@@ -124,11 +124,14 @@ jobs:
       # ---------- 部署到 NAS ----------
       # 上一步已在本地构建出 compose 引用的镜像 tag，up 时不会触发 TCR 拉取
       # 凭证由 NAS 侧部署目录的 .env 提供（挂载 DEPLOY_DIR）
+      # 注意：必须挂载到与 NAS 一致的路径（DEPLOY_DIR → DEPLOY_DIR），
+      #       compose 把 config_files 路径计入项目身份，挂到 /work 会视为
+      #       新项目而尝试重建容器，撞上同名容器报 Conflict
       - name: Deploy to NAS
         run: |
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$DEPLOY_DIR:/work" -w /work \
+            -v "$DEPLOY_DIR:$DEPLOY_DIR" -w "$DEPLOY_DIR" \
             "$COMPOSE_IMAGE" \
             docker compose up -d --remove-orphans
 
