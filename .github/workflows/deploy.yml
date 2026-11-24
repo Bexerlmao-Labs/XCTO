@@ -23,9 +23,9 @@
 
 name: Build & Deploy
 
+# ⚠️ CI/CD 已迁移至 NAS Woodpecker（.woodpecker.yml + deploy/woodpecker/）
+# 本文件仅保留手动触发入口作应急备份；push 不再触发，避免无 runner 时任务永久排队
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 # 同一时间只允许一个部署，避免两次 push 并发写 NAS

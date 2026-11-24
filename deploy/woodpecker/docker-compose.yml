@@ -1,0 +1,81 @@
+# ============================================================
+# Woodpecker CI（NAS 本地构建编排）
+# 组成：server（Web UI/API/编排）+ agent（执行器，挂 docker.sock）
+# 与 Gitea/GitHub 通过 OAuth App 集成，webhook 触发流水线
+#
+# 首次启用 GitHub 集成的步骤：
+#   1. GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
+#      - Homepage URL: 填 .env 里的 WOODPECKER_HOST
+#      - Authorization callback URL: $WOODPECKER_HOST/authorize
+#   2. 把 Client ID / Client Secret 填入本目录 .env
+#   3. docker compose up -d 重建
+#   4. frpc 增加 19000→9000 转发（webhook/OAuth 回调入口）
+#      GitHub 仓库 webhook 填: $WOODPECKER_HOST/api/webhook/github
+# ============================================================
+
+services:
+  woodpecker-server:
+    image: docker.m.daocloud.io/woodpeckerci/woodpecker-server:v3.20.1
+    container_name: woodpecker-server
+    restart: unless-stopped
+    ports:
+      # 容器内 8000 = Web UI/API（v3 默认）；容器内 9000 = gRPC（agent 走 compose 内网，不映射）
+      - "9000:8000"
+    environment:
+      - TZ=Asia/Shanghai
+      - WOODPECKER_OPEN=false
+      - WOODPECKER_ADMIN=Bexerlmao
+      - WOODPECKER_HOST=${WOODPECKER_HOST}
+      # v3.20.1 运行时实测只读 WOODPECKER_GRPC_SECRET（警告为准）；AGENT_SECRET 为新版名称，两个都设
+      - WOODPECKER_GRPC_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      # v3 已移除 SQLite，复用 NAS 现有 postgres（库 woodpecker 已建）
+      # 密码里的 @ 在 DSN 中需转义为 %40；DATASOURCE 在 .env 中维护
+      - WOODPECKER_DATABASE_DRIVER=postgres
+      - WOODPECKER_DATABASE_DATASOURCE=${WOODPECKER_DATABASE_DATASOURCE}
+      # GitHub forge（OAuth App 凭据填 .env）
+      - WOODPECKER_GITHUB=true
+      - WOODPECKER_GITHUB_CLIENT=${WOODPECKER_GITHUB_CLIENT}
+      - WOODPECKER_GITHUB_SECRET=${WOODPECKER_GITHUB_SECRET}
+      # server 访问 GitHub API 走 mihomo 代理
+      - HTTPS_PROXY=http://172.17.0.1:7890
+      - HTTP_PROXY=http://172.17.0.1:7890
+      - NO_PROXY=localhost,127.0.0.1,10.8.0.0/24,172.16.0.0/12,ccr.ccs.tencentyun.com
+    volumes:
+      - ./data:/var/lib/woodpecker
+    networks:
+      postgresql-net: {}
+      # 固定 IP：NAS mihomo TUN 会劫持容器 DNS（fake-ip），agent 需用 extra_hosts 直连
+      default:
+        ipv4_address: 172.30.0.10
+
+  woodpecker-agent:
+    image: docker.m.daocloud.io/woodpeckerci/woodpecker-agent:v3.20.1
+    container_name: woodpecker-agent
+    restart: unless-stopped
+    depends_on:
+      - woodpecker-server
+    environment:
+      - TZ=Asia/Shanghai
+      - WOODPECKER_SERVER=woodpecker-server:9000
+      - WOODPECKER_AGENT_SECRET=${WOODPECKER_AGENT_SECRET}
+      - WOODPECKER_MAX_PROCS=2
+    volumes:
+      # 执行构建步骤（docker build/push/compose）必需
+      - /var/run/docker.sock:/var/run/docker.sock
+      # agent 注册 ID 持久化（distroless 镜像内 /etc/woodpecker 不可写）
+      - /vol1/1000/application/woodpecker/agent-config:/etc/woodpecker
+    extra_hosts:
+      # 绕过被 mihomo 劫持的 DNS，直连 server 固定 IP
+      - "woodpecker-server:172.30.0.10"
+
+# 固定子网 + 复用 NAS 现有 postgres 容器所在网络
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  postgresql-net:
+    external: true
+    name: postgresql-net

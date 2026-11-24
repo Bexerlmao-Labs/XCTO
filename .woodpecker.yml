@@ -1,0 +1,67 @@
+# Woodpecker 流水线：XCTO 构建与部署
+# 触发：push 到 main（GitHub webhook）或 Woodpecker UI 手动触发
+# 密钥：Woodpecker 中配置组织级 secrets：tcr_username / tcr_password
+#
+# 注意：
+# - docker build 的 context 由 CLI 从本步骤容器的工作区直接流式发送，
+#   不经过宿主机路径（规避 NAS 容器内 /vol1 单向缓存视图的坑）
+# - 挂载 /vol1 的步骤（publish/deploy）用的是 docker -v，由宿主机 daemon 解析，无此问题
+# - 部署目录必须按原路径挂载，compose 项目身份依赖 config_files 路径
+
+when:
+  - event: push
+    branch: main
+  - event: manual
+
+steps:
+  build-backend:
+    image: docker.m.daocloud.io/library/maven:3.9-eclipse-temurin-17
+    volumes:
+      - /vol1/1000/application/woodpecker/cache/maven:/root/.m2
+    commands:
+      # -s 指定阿里云镜像仓库 settings，避免 Maven Central 限流（429）
+      - mvn -B -s .github/maven-settings.xml clean package -DskipTests -Dskip.frontend=true
+
+  build-frontend:
+    image: docker.m.daocloud.io/library/node:20-alpine
+    volumes:
+      - /vol1/1000/application/woodpecker/cache/npm:/root/.npm
+    commands:
+      - cd xcto-ui && npm ci --cache /root/.npm && npm run build-only
+
+  build-push-image:
+    image: docker.m.daocloud.io/library/docker:cli
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      TCR_REGISTRY: ccr.ccs.tencentyun.com
+      BACKEND_IMAGE: ccr.ccs.tencentyun.com/xcto/xcto-backend
+      TCR_USERNAME:
+        from_secret: tcr_username
+      TCR_PASSWORD:
+        from_secret: tcr_password
+    commands:
+      - SHA8=$(echo "$CI_COMMIT_SHA" | cut -c1-8)
+      # 密码含特殊字符也安全：密钥经 Woodpecker 注入环境变量，不进脚本文本
+      - echo "$TCR_PASSWORD" | docker login "$TCR_REGISTRY" --username "$TCR_USERNAME" --password-stdin
+      # tag 用 compose 引用的镜像名：本地存在该 tag 时部署不会触发 TCR 拉取
+      - docker build --provenance=false --sbom=false -t "$BACKEND_IMAGE:latest" -t "$BACKEND_IMAGE:$SHA8" .
+      # 推送 TCR 仅作备份/回滚
+      - docker push "$BACKEND_IMAGE:latest" && docker push "$BACKEND_IMAGE:$SHA8"
+
+  publish-frontend:
+    image: docker.m.daocloud.io/library/alpine:3.20
+    volumes:
+      - /vol1/1000/www/xcto:/target
+    commands:
+      - mkdir -p /target/dist && rm -rf /target/dist/*
+      - tar -C xcto-ui/dist -czf - . | tar -xz -C /target/dist
+
+  deploy:
+    image: docker.m.daocloud.io/library/docker:cli
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # 原路径挂载：compose 项目身份依赖 config_files 路径；.env 凭证在此目录
+      - /vol1/1000/application/xcto:/vol1/1000/application/xcto
+    commands:
+      - cd /vol1/1000/application/xcto && docker compose up -d --remove-orphans
